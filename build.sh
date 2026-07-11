@@ -49,6 +49,7 @@ export IMAGE_NAME="rootfs.img"
 export IMAGE_UUID="ee8d3593-59b1-480e-a3b6-4fefb17ee7d8"
 export HOSTNAME="xiaomi-raphael"
 export BOOT_IMG="xiaomi-k20pro-boot.img"
+export EFI_IMG="xiaomi-k20pro-efi.img"
 export KERNEL_DEBS_DIR="xiaomi-raphael-debs_$KERNEL_VERSION"
 
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
@@ -92,6 +93,7 @@ echo "[$(date +'%Y-%m-%d %H:%M:%S')] ========================================== 
 "$SCRIPT_DIR/scripts/04-config-network.sh"
 "$SCRIPT_DIR/scripts/05-apt-setup.sh"
 "$SCRIPT_DIR/scripts/06-install-all-packages.sh"
+"$SCRIPT_DIR/scripts/06b-config-audio.sh"
 "$SCRIPT_DIR/scripts/07-config-locale.sh"
 "$SCRIPT_DIR/scripts/08-add-screen-commands.sh"
 "$SCRIPT_DIR/scripts/08b-config-plymouth.sh"
@@ -103,12 +105,13 @@ echo "[$(date +'%Y-%m-%d %H:%M:%S')] ========================================== 
 "$SCRIPT_DIR/scripts/12-create-users.sh"
 "$SCRIPT_DIR/scripts/13-config-power.sh"
 "$SCRIPT_DIR/scripts/13b-config-power-key.sh"
+"$SCRIPT_DIR/scripts/13c-config-remote-desktop.sh"
 "$SCRIPT_DIR/scripts/14-config-zram.sh"
 "$SCRIPT_DIR/scripts/15-cleanup.sh"
 "$SCRIPT_DIR/scripts/16-finalize.sh"
 echo "[$(date +'%Y-%m-%d %H:%M:%S')] ========================================== 🎉 构建完成 🎉 =========================================="
 
-# 打包 Recovery 卡刷包: boot(内核)->vendor.img, rootfs->system.img, 结合 pack/ 模板
+# 打包 Recovery 卡刷包: vendor(/boot ext4), cust(EFI), rootfs->system.img, 结合 pack/ 模板
 export PACK_SRC="$SCRIPT_DIR/pack"
 export FLASHABLE_ZIP="${FLASHABLE_ZIP:-flashable-${SYSTEM_TYPE}-${KERNEL_VERSION}.zip}"
 echo ""

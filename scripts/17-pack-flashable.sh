@@ -5,11 +5,11 @@ set -e
 # [17] 打包 Recovery 卡刷包 (flashable zip)
 # ----------------------------------------------------------------
 # 将构建产物整合进 pack/ 模板，生成可直接在 Recovery 中刷入的卡刷包：
-#   pack/boot.img          (u-boot, 静态)  -> boot    分区
-#   xiaomi-k20pro-boot.img (内核 boot)     -> vendor  分区 (改名 vendor.img)
+#   pack/boot.img          (u-boot, 静态)  -> boot     分区
+#   xiaomi-k20pro-boot.img (/boot, ext4)    -> vendor   分区 (改名 vendor.img)
+#   xiaomi-k20pro-efi.img  (EFI, FAT)      -> cust     分区 (改名 cust.img)
 #   rootfs.img             (根文件系统)    -> userdata 分区 (改名 system.img)
-#   pack/firmware-update/logo.img (静态)   -> logo    分区
-# 内核 boot 放 vendor 而非 cache：Recovery 清 cache 不会擦掉 Linux /boot。
+#   pack/firmware-update/logo.img (静态)   -> logo     分区
 # 分区映射由 pack/META-INF/.../updater-script 定义。
 # ================================================================
 
@@ -17,6 +17,7 @@ SCRIPT_DIR="${SCRIPT_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 PACK_SRC="${PACK_SRC:-$SCRIPT_DIR/pack}"
 IMAGE_NAME="${IMAGE_NAME:-rootfs.img}"
 BOOT_IMG="${BOOT_IMG:-xiaomi-k20pro-boot.img}"
+EFI_IMG="${EFI_IMG:-xiaomi-k20pro-efi.img}"
 SYSTEM_TYPE="${SYSTEM_TYPE:-system}"
 KERNEL_VERSION="${KERNEL_VERSION:-unknown}"
 FLASHABLE_ZIP="${FLASHABLE_ZIP:-flashable-${SYSTEM_TYPE}-${KERNEL_VERSION}.zip}"
@@ -35,7 +36,11 @@ if [ ! -f "$IMAGE_NAME" ]; then
     exit 1
 fi
 if [ ! -f "$BOOT_IMG" ]; then
-    echo "[$(date +'%Y-%m-%d %H:%M:%S')] [17] ❌ 缺少内核 boot 镜像: $BOOT_IMG"
+    echo "[$(date +'%Y-%m-%d %H:%M:%S')] [17] ❌ 缺少 /boot 镜像: $BOOT_IMG"
+    exit 1
+fi
+if [ ! -f "$EFI_IMG" ]; then
+    echo "[$(date +'%Y-%m-%d %H:%M:%S')] [17] ❌ 缺少 EFI 镜像: $EFI_IMG"
     exit 1
 fi
 if [ ! -d "$PACK_SRC" ]; then
@@ -55,10 +60,12 @@ mkdir -p "$WORK_DIR"
 # 复制模板 (META-INF / boot.img / firmware-update 等)
 cp -r "$PACK_SRC"/. "$WORK_DIR"/
 
-# boot(内核) -> vendor.img, rootfs -> system.img
-# 优先使用硬链接(同一文件系统, 零额外占用), 失败则回退到拷贝
+# vendor(/boot, ext4) -> vendor.img, cust(EFI) -> firmware-update/cust.img, rootfs -> system.img
 echo "[$(date +'%Y-%m-%d %H:%M:%S')] [17]   └─ $BOOT_IMG  ->  vendor.img"
 ln -f "$BOOT_IMG" "$WORK_DIR/vendor.img" 2>/dev/null || cp "$BOOT_IMG" "$WORK_DIR/vendor.img"
+
+echo "[$(date +'%Y-%m-%d %H:%M:%S')] [17]   └─ $EFI_IMG  ->  firmware-update/cust.img"
+ln -f "$EFI_IMG" "$WORK_DIR/firmware-update/cust.img" 2>/dev/null || cp "$EFI_IMG" "$WORK_DIR/firmware-update/cust.img"
 
 echo "[$(date +'%Y-%m-%d %H:%M:%S')] [17]   └─ $IMAGE_NAME  ->  system.img"
 ln -f "$IMAGE_NAME" "$WORK_DIR/system.img" 2>/dev/null || cp "$IMAGE_NAME" "$WORK_DIR/system.img"
@@ -71,12 +78,16 @@ echo "[$(date +'%Y-%m-%d %H:%M:%S')] [17]   └─ 生成卡刷包: $FLASHABLE_Z
 (
     cd "$WORK_DIR"
     # -r 递归, -X 不存额外属性; 备份/隐藏文件不打包
+    # cust 分区镜像位于 firmware-update/cust.img (updater-script 第 30 行)
     zip -r -X "$OUT" \
         META-INF \
         boot.img \
         vendor.img \
         system.img \
-        firmware-update \
+        firmware-update/cust.img \
+        firmware-update/dtbo.img \
+        firmware-update/logo.img \
+        firmware-update/vbmeta.img \
         -x '*~' -x '*/.*'
 )
 

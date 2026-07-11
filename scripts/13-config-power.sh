@@ -17,24 +17,10 @@ EOF
 fi
 
 
-# 配置开机 15 秒后自动熄屏的 Systemd 服务
-cat > rootdir/etc/systemd/system/blank_screen.service << 'EOF'
-[Unit]
-Description=Auto-blank screen after 30s
-After=multi-user.target
-
-[Service]
-Type=simple
-ExecStartPre=/bin/bash -c "/usr/bin/sleep 30"
-ExecStart=sh -c 'TERM=linux setterm --blank force </dev/tty1'
-User=root
-Restart=on-failure
-RestartSec=5s
-
-[Install]
-WantedBy=multi-user.target
-EOF
-chroot rootdir systemctl enable blank_screen.service
-
+# 旧版 tty setterm 熄屏与 Wayland 冲突，会导致黑屏难唤醒；禁用
+if [ -f rootdir/etc/systemd/system/blank_screen.service ]; then
+	chroot rootdir systemctl disable blank_screen.service 2>/dev/null || true
+	rm -f rootdir/etc/systemd/system/multi-user.target.wants/blank_screen.service
+fi
 
 echo "[$(date +'%Y-%m-%d %H:%M:%S')] [13] ✅ 电源管理配置完成"

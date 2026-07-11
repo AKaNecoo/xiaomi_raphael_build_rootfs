@@ -222,7 +222,9 @@ fi
 
 if [[ "$SYSTEM_TYPE" != *"server"* ]]; then
     if [ "$DESKTOP_ENV" = "gnome" ]; then
-        echo "[$(date +'%Y-%m-%d %H:%M:%S')] [06]   └─ 配置 GDM 自动登录"
+        # 临时默认；13c Remote Login 会改回 AutomaticLoginEnable=false
+        # （自动登录会破坏 GDM remote display handover）
+        echo "[$(date +'%Y-%m-%d %H:%M:%S')] [06]   └─ 配置 GDM 自动登录（13c 远程登录会覆盖关闭）"
         cat > rootdir/etc/gdm3/custom.conf << 'EOF'
 [daemon]
 AutomaticLoginEnable=true
@@ -347,66 +349,7 @@ elif [[ "$SYSTEM_TYPE" == *"phosh"* || "$SYSTEM_TYPE" == *"gnome"* ]]; then
     exit 1
 fi
 
-# ================================================================
-# 音频：Raphael TFA9874 软件音量（保留 PipeWire，兼容远程桌面）
-# ----------------------------------------------------------------
-# TFA9874 扬声器在 UCM 中无 HW 音量控件，PipeWire 默认 HW mixer → 几乎无声。
-# 通过 WirePlumber soft-mixer 修复音量，同时保留 PipeWire 栈供 GNOME 远程桌面/
-# 屏幕共享（依赖 pipewire + portal）使用。
-# 切勿 mask PipeWire 改 PulseAudio——会破坏 gnome-remote-desktop / RDP。
-# ================================================================
-echo "[$(date +'%Y-%m-%d %H:%M:%S')] [06]   └─ 配置音频 (PipeWire soft-mixer，保留远程桌面)"
-
-PW_CANDIDATES="pipewire pipewire-pulse pipewire-audio pipewire-alsa \
-    pipewire-audio-client-libraries libspa-0.2-bluetooth wireplumber"
-PW_INSTALL=""
-for p in $PW_CANDIDATES; do
-    if chroot rootdir apt-cache show "$p" >/dev/null 2>&1; then
-        PW_INSTALL="$PW_INSTALL $p"
-    fi
-done
-if [ -n "$PW_INSTALL" ]; then
-    echo "[$(date +'%Y-%m-%d %H:%M:%S')] [06]   └─ 确保 PipeWire 包:$PW_INSTALL"
-    chroot rootdir apt-get install -y $PW_INSTALL
-fi
-
-install -d rootdir/etc/wireplumber/wireplumber.conf.d
-cat > rootdir/etc/wireplumber/wireplumber.conf.d/50-raphael-soft-mixer.conf << 'EOF'
-# Raphael (TFA9874): no ALSA HW volume in UCM → force software mixer.
-monitor.alsa.rules = [
-  {
-    matches = [ { device.name = "~alsa_card.*" } ]
-    actions = {
-      update-props = {
-        api.alsa.soft-mixer = true
-        api.alsa.use-ucm = true
-      }
-    }
-  }
-]
-monitor.rules = [
-  {
-    matches = [ { node.name = "~alsa_output.*" } ]
-    actions = {
-      update-props = {
-        volume = 1.0
-      }
-    }
-  }
-]
-EOF
-
-# 若旧镜像曾 mask PipeWire 改 PulseAudio，此处恢复（远程桌面需要 PipeWire）
-for unit in pipewire.socket pipewire-pulse.socket pipewire.service \
-            pipewire-pulse.service wireplumber.service \
-            pipewire-media-session.service; do
-    chroot rootdir systemctl --global unmask "$unit" 2>/dev/null || true
-done
-chroot rootdir systemctl --global mask pulseaudio.service pulseaudio.socket 2>/dev/null || true
-chroot rootdir systemctl --global enable \
-    pipewire.socket pipewire-pulse.socket wireplumber.service 2>/dev/null || true
-
-echo "[$(date +'%Y-%m-%d %H:%M:%S')] [06]   └─ 音频配置完成 ✅"
+# 音频服务配置已拆到 06b-config-audio.sh（build.sh 在本脚本之后调用）
 
 if [[ "$SYSTEM_TYPE" != *"server"* ]]; then
     if [[ "$DESKTOP_ENV" == phosh* ]]; then

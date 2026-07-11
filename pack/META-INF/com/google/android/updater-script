@@ -1,11 +1,12 @@
 ui_print(" ");
 ui_print("==================================");
-ui_print("=====Ubuntu Jammy For K20 Pro=====");
-ui_print("=============Nuan yang============");
-ui_print("======GavinLinOnline(GitHUB)======");
+ui_print("======  Ubuntu For K20 Pro  ======");
+ui_print("============ Nuan yang ===========");
+ui_print("===== GavinLinOnline(GitHUB) =====");
 ui_print("==================================");
 ui_print(" ");
 ifelse(is_mounted("/userdata"), unmount("/userdata"));
+ifelse(is_mounted("/cust"), unmount("/cust"));
 ifelse(is_mounted("/vendor"), unmount("/vendor"));
 ifelse(is_mounted("/boot"), unmount("/boot"));
 run_program("/sbin/busybox", "rm", "-rf", "/data/dalvik-cache");
@@ -17,12 +18,16 @@ run_program("/sbin/busybox", "dd", "if=/dev/zero", "of=/dev/block/by-name/cache"
 run_program("/sbin/busybox", "dd", "if=/dev/zero", "of=/dev/block/by-name/vendor", "bs=1m");
 run_program("/sbin/busybox", "dd", "if=/dev/zero", "of=/dev/block/by-name/userdata", "bs=1m");
 run_program("/sbin/busybox", "dd", "if=/dev/zero", "of=/dev/block/by-name/vbmeta", "bs=1m");
+run_program("/sbin/busybox", "dd", "if=/dev/zero", "of=/dev/block/by-name/cust", "bs=1m");
 show_progress(0.100000, 10);
 # ---- radio update tasks ----
 package_extract_file("boot.img", "/dev/block/bootdevice/by-name/boot");
 package_extract_file("vendor.img", "/dev/block/bootdevice/by-name/vendor");
 package_extract_file("system.img", "/dev/block/bootdevice/by-name/userdata");
 package_extract_file("firmware-update/logo.img", "/dev/block/bootdevice/by-name/logo");
+package_extract_file("firmware-update/vbmeta.img", "/dev/block/bootdevice/by-name/vbmeta");
+package_extract_file("firmware-update/dtbo.img", "/dev/block/bootdevice/by-name/dtbo");
+package_extract_file("firmware-update/cust.img", "/dev/block/bootdevice/by-name/cust");
 ui_print(" ");
 ui_print("==================================");
 ui_print("============= Done ===============");

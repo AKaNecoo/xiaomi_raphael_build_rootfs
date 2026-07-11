@@ -4,6 +4,7 @@ set -e
 DEBIAN_VERSION="${DEBIAN_VERSION:-trixie}"
 UBUNTU_VERSION="${UBUNTU_VERSION:-resolute}"
 BOOT_IMG="${BOOT_IMG:-xiaomi-k20pro-boot.img}"
+EFI_IMG="${EFI_IMG:-xiaomi-k20pro-efi.img}"
 SYSTEM_TYPE="${SYSTEM_TYPE:-ubuntu-server}"
 BOOTSTRAP_TOOL="${BOOTSTRAP_TOOL:-mmdebstrap}"
 ARCH="${ARCH:-arm64}"
@@ -31,20 +32,33 @@ else
     exit 1
 fi
 
-if [ -f "${BOOT_IMG}" ]; then
-    echo "[$(date +'%Y-%m-%d %H:%M:%S')] [02]   └─ 挂载 boot 分区 (${BOOT_IMG}) 📁"
-    if mount -o loop ${BOOT_IMG} rootdir/boot 2>&1; then
-        echo "[$(date +'%Y-%m-%d %H:%M:%S')] [02]   └─ Boot 分区挂载成功"
-    else
-        echo "[$(date +'%Y-%m-%d %H:%M:%S')] [02] ❌ 错误: Boot 分区挂载失败"
-        exit 1
-    fi
-else
+if [ ! -f "${BOOT_IMG}" ]; then
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] [02] ❌ 错误: ${BOOT_IMG} 不存在"
     exit 1
 fi
+if [ ! -f "${EFI_IMG}" ]; then
+    echo "[$(date +'%Y-%m-%d %H:%M:%S')] [02] ❌ 错误: ${EFI_IMG} 不存在"
+    exit 1
+fi
 
-    cd ./boot
-    cp -R . ../rootdir/boot
-    cd ../
+mkdir -p rootdir/boot efidir
+
+echo "[$(date +'%Y-%m-%d %H:%M:%S')] [02]   └─ 挂载 /boot 分区 (vendor, ext4, ${BOOT_IMG}) 📁"
+if ! mount -o loop ${BOOT_IMG} rootdir/boot; then
+    echo "[$(date +'%Y-%m-%d %H:%M:%S')] [02] ❌ 错误: /boot 分区挂载失败"
+    exit 1
+fi
+
+echo "[$(date +'%Y-%m-%d %H:%M:%S')] [02]   └─ 挂载 EFI 分区 (cust, FAT, ${EFI_IMG}) 📁"
+if ! mount -o loop ${EFI_IMG} efidir; then
+    echo "[$(date +'%Y-%m-%d %H:%M:%S')] [02] ❌ 错误: EFI 分区挂载失败"
+    exit 1
+fi
+
+echo "[$(date +'%Y-%m-%d %H:%M:%S')] [02]   └─ 部署引导文件 (EFI -> cust, Linux -> vendor /boot)"
+cp -R ./boot/efi/. efidir/
+if [ -f ./boot/refind_linux.conf ]; then
+    cp ./boot/refind_linux.conf rootdir/boot/
+fi
+
 echo "[$(date +'%Y-%m-%d %H:%M:%S')] [02] ✅ 基础系统安装完成"
