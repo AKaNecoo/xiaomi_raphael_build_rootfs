@@ -7,3 +7,6 @@ flashable-*.zip
 .pack-build/
 xiaomi-k20pro-boot.img
 xiaomi-raphael-debs_*/
+build/
+tmp-*.txt
+scripts/*.sh~

@@ -98,6 +98,7 @@ echo "[$(date +'%Y-%m-%d %H:%M:%S')] ========================================== 
 "$SCRIPT_DIR/scripts/09-install-kernel.sh"
 "$SCRIPT_DIR/scripts/10-config-ncm.sh"
 "$SCRIPT_DIR/scripts/10b-config-modem.sh"
+"$SCRIPT_DIR/scripts/10c-config-sensors.sh"
 "$SCRIPT_DIR/scripts/11-config-fstab.sh"
 "$SCRIPT_DIR/scripts/12-create-users.sh"
 "$SCRIPT_DIR/scripts/13-config-power.sh"
@@ -107,7 +108,7 @@ echo "[$(date +'%Y-%m-%d %H:%M:%S')] ========================================== 
 "$SCRIPT_DIR/scripts/16-finalize.sh"
 echo "[$(date +'%Y-%m-%d %H:%M:%S')] ========================================== 🎉 构建完成 🎉 =========================================="
 
-# 打包 Recovery 卡刷包: boot(内核)->cache.img, rootfs->system.img, 结合 pack/ 模板
+# 打包 Recovery 卡刷包: boot(内核)->vendor.img, rootfs->system.img, 结合 pack/ 模板
 export PACK_SRC="$SCRIPT_DIR/pack"
 export FLASHABLE_ZIP="${FLASHABLE_ZIP:-flashable-${SYSTEM_TYPE}-${KERNEL_VERSION}.zip}"
 echo ""

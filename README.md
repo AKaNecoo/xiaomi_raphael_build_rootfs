@@ -28,7 +28,7 @@
 
 ### 2.1 获取镜像
 
-前往本仓库 [Releases](https://github.com/GavinLiuOnline/xiaomi_raphael_build_rootfs/releases) 下载对应机型的 `.zip` 卡刷包，无需本地编译。卡刷包内已整合 **u-boot(boot) + 内核(cache.img) + 根文件系统(system.img) + logo**。
+前往本仓库 [Releases](https://github.com/GavinLiuOnline/xiaomi_raphael_build_rootfs/releases) 下载对应机型的 `.zip` 卡刷包，无需本地编译。卡刷包内已整合 **u-boot(boot) + 内核(vendor.img) + 根文件系统(system.img) + logo**（内核刷入 vendor 分区，避免 Recovery 清 cache 导致丢失）。
 
 > 体积超过 GitHub Release 单文件 2GB 限制的镜像（如部分 `ubuntu-gnome` 镜像）会被拆分为 `*.partXX` 分卷，或仅保留在 Actions 的 Artifacts 中。
 

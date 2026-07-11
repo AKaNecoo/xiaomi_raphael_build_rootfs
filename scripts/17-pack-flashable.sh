@@ -5,10 +5,11 @@ set -e
 # [17] 打包 Recovery 卡刷包 (flashable zip)
 # ----------------------------------------------------------------
 # 将构建产物整合进 pack/ 模板，生成可直接在 Recovery 中刷入的卡刷包：
-#   pack/boot.img          (u-boot, 静态)  -> boot   分区
-#   xiaomi-k20pro-boot.img (内核 boot)     -> cache  分区 (改名 cache.img)
+#   pack/boot.img          (u-boot, 静态)  -> boot    分区
+#   xiaomi-k20pro-boot.img (内核 boot)     -> vendor  分区 (改名 vendor.img)
 #   rootfs.img             (根文件系统)    -> userdata 分区 (改名 system.img)
-#   pack/firmware-update/logo.img (静态)   -> logo   分区
+#   pack/firmware-update/logo.img (静态)   -> logo    分区
+# 内核 boot 放 vendor 而非 cache：Recovery 清 cache 不会擦掉 Linux /boot。
 # 分区映射由 pack/META-INF/.../updater-script 定义。
 # ================================================================
 
@@ -54,10 +55,10 @@ mkdir -p "$WORK_DIR"
 # 复制模板 (META-INF / boot.img / firmware-update 等)
 cp -r "$PACK_SRC"/. "$WORK_DIR"/
 
-# boot(内核) -> cache.img, rootfs -> system.img
+# boot(内核) -> vendor.img, rootfs -> system.img
 # 优先使用硬链接(同一文件系统, 零额外占用), 失败则回退到拷贝
-echo "[$(date +'%Y-%m-%d %H:%M:%S')] [17]   └─ $BOOT_IMG  ->  cache.img"
-ln -f "$BOOT_IMG" "$WORK_DIR/cache.img" 2>/dev/null || cp "$BOOT_IMG" "$WORK_DIR/cache.img"
+echo "[$(date +'%Y-%m-%d %H:%M:%S')] [17]   └─ $BOOT_IMG  ->  vendor.img"
+ln -f "$BOOT_IMG" "$WORK_DIR/vendor.img" 2>/dev/null || cp "$BOOT_IMG" "$WORK_DIR/vendor.img"
 
 echo "[$(date +'%Y-%m-%d %H:%M:%S')] [17]   └─ $IMAGE_NAME  ->  system.img"
 ln -f "$IMAGE_NAME" "$WORK_DIR/system.img" 2>/dev/null || cp "$IMAGE_NAME" "$WORK_DIR/system.img"
@@ -73,7 +74,7 @@ echo "[$(date +'%Y-%m-%d %H:%M:%S')] [17]   └─ 生成卡刷包: $FLASHABLE_Z
     zip -r -X "$OUT" \
         META-INF \
         boot.img \
-        cache.img \
+        vendor.img \
         system.img \
         firmware-update \
         -x '*~' -x '*/.*'

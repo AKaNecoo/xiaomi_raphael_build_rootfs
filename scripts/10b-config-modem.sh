@@ -14,7 +14,7 @@ set -e
 # 注：不再安装 raphael-modem-offline（00161 固件 + IPA 补丁已解决 RF/数据面崩溃，
 #     该服务会把 RF 永久锁 offline 导致无法注册）。
 #     内核 IPA 修复在 patchs/raphael.patch；00161 固件在 firmware-xiaomi-raphael.deb。
-#     移动数据需 qrtr8+ ModemManager（QMAPv4 patch，见 06 安装 + patches/modemmanager/）。
+#     移动数据需 qrtr8+ ModemManager（QMAPv4 patch，见 基带测试/mm/mm 编译产物）。
 #   5) NetworkManager DNS —— dns=none，NM 不接管 /etc/resolv.conf；resolv.conf
 #      由 04 写死公共 DNS（223.5.5.5/114.114.114.114），不跟随运营商下发。
 

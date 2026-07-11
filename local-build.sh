@@ -294,6 +294,42 @@ check_local_kernel() {
 }
 
 # ================================================================
+# 检查传感器栈本地 deb（hexagonrpcd / libssc / iio-sensor-proxy SSC）
+# ================================================================
+check_sensor_debs() {
+    header "检查传感器栈 deb..."
+
+    local deb_dir="${SENSOR_DEB_DIR:-debs}"
+    local required=(
+        "hexagonrpcd_*_arm64.deb"
+        "libssc0_*_arm64.deb"
+        "iio-sensor-proxy_*_arm64.deb"
+        "sensors-xiaomi-raphael_*_arm64.deb"
+        "sensors-tools-xiaomi-raphael_*_arm64.deb"
+    )
+    local missing=false
+
+    if [ ! -d "$deb_dir" ]; then
+        error "缺少 $deb_dir/，请先运行: xiaomi_raphael_build_kernel/raphael-sensors_build.sh"
+        exit 1
+    fi
+
+    for pattern in "${required[@]}"; do
+        if compgen -G "$deb_dir/$pattern" >/dev/null; then
+            ok "$(ls -1v $deb_dir/$pattern | tail -1)"
+        else
+            error "缺少 $deb_dir/$pattern"
+            missing=true
+        fi
+    done
+
+    if [ "$missing" = true ]; then
+        error "请先运行: xiaomi_raphael_build_kernel/raphael-sensors_build.sh"
+        exit 1
+    fi
+}
+
+# ================================================================
 # 运行构建
 # ================================================================
 run_build() {
@@ -352,6 +388,7 @@ main() {
     check_architecture
     install_dependencies
     check_local_kernel
+    check_sensor_debs
     run_build
 
     echo ""

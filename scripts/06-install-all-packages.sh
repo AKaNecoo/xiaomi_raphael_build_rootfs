@@ -3,7 +3,8 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CONFIG_DIR="$SCRIPT_DIR/../config"
-DEB_OUT_DIR="${DEB_OUT_DIR:-$SCRIPT_DIR/../debs}"
+QCOM_DEB_DIR="${QCOM_DEB_DIR:-$SCRIPT_DIR/../debs}"
+SENSOR_DEB_DIR="${SENSOR_DEB_DIR:-$SCRIPT_DIR/../debs}"
 
 . "$CONFIG_DIR/build-config.sh"
 
@@ -32,7 +33,9 @@ elif [[ "$SYSTEM_TYPE" == *"ubuntu-"* ]]; then
 	fi
 fi
 
-# 通用外设 + Qualcomm 运行时依赖（Jammy 源中可安装的）
+# Modem/QCOM 本地 deb（libqrtr、rmtfs、MM 等）在 rootfs/debs/
+# 传感器交叉编译 deb 在 xiaomi_raphael_build_kernel/output/
+# iio-sensor-proxy 由本地 SSC 版 deb 安装（见 install_sensor_local_debs），勿用 apt 无 SSC 版
 DEVICE_PACKAGES="wpasupplicant iw iproute2 alsa-ucm-conf alsa-utils power-profiles-daemon gpsd gpsd-clients libmbim-utils liblzma5"
 
 
@@ -119,7 +122,7 @@ install_qcom_local_debs() {
 	mm_deb="$(ls -1 "$deb_dir"/modemmanager-qrtr-sm8150_*_jammy_arm64.deb 2>/dev/null | sort -V | tail -1)"
 	if [ -z "$mm_deb" ]; then
 		echo "[$(date +'%Y-%m-%d %H:%M:%S')] [06] ❌ 缺少: $deb_dir/modemmanager-qrtr-sm8150_*_jammy_arm64.deb" >&2
-		echo "[$(date +'%Y-%m-%d %H:%M:%S')] [06]    请先运行: $SCRIPT_DIR/build-modemmanager-deb.sh" >&2
+		echo "[$(date +'%Y-%m-%d %H:%M:%S')] [06]    请先运行: 基带测试/mm/mm 下 ./build.sh && ./make-deb.sh，并复制 deb 到 debs/" >&2
 		exit 1
 	fi
 	echo "[$(date +'%Y-%m-%d %H:%M:%S')] [06]   └─ ModemManager: $(basename "$mm_deb") (QMAPv4 patch, 禁用 v5)"
@@ -165,8 +168,52 @@ chroot rootdir sh -c "apt-get remove -y --allow-remove-essential \
 
 }
 
-install_qcom_local_debs "$DEB_OUT_DIR"
+install_qcom_local_debs "$QCOM_DEB_DIR"
 
+install_sensor_local_debs() {
+	local deb_dir="$1"
+	local required=(
+		hexagonrpcd_*_arm64.deb
+		libssc0_*_arm64.deb
+		iio-sensor-proxy_*_arm64.deb
+	)
+
+	if [ ! -d "$deb_dir" ]; then
+		echo "[$(date +'%Y-%m-%d %H:%M:%S')] [06] ❌ deb 目录不存在: $deb_dir" >&2
+		exit 1
+	fi
+
+	local missing=0
+	for pattern in "${required[@]}"; do
+		if ! compgen -G "$deb_dir/$pattern" >/dev/null; then
+			echo "[$(date +'%Y-%m-%d %H:%M:%S')] [06] ❌ 缺少: $deb_dir/$pattern" >&2
+			echo "[$(date +'%Y-%m-%d %H:%M:%S')] [06]    请先运行: xiaomi_raphael_build_kernel/raphael-sensors_build.sh" >&2
+			missing=1
+		fi
+	done
+	if [ "$missing" -ne 0 ]; then
+		exit 1
+	fi
+
+	echo "[$(date +'%Y-%m-%d %H:%M:%S')] [06]   └─ 安装本地传感器 deb (SSC): $deb_dir"
+	mkdir -p rootdir/tmp/sensor-debs
+	# 优先最新版本号（避免同时存在 -1/-2 时 dpkg -i 装到旧包）
+	cp "$(ls -1v "$deb_dir"/libssc0_*_arm64.deb | tail -1)" \
+		"$(ls -1v "$deb_dir"/hexagonrpcd_*_arm64.deb | tail -1)" \
+		"$(ls -1v "$deb_dir"/iio-sensor-proxy_*_arm64.deb | tail -1)" \
+		rootdir/tmp/sensor-debs/
+
+	# 替换 Ubuntu 自带的无 SSC 版 iio-sensor-proxy
+	chroot rootdir apt-get remove -y iio-sensor-proxy 2>/dev/null || true
+
+	chroot rootdir sh -c "dpkg -i /tmp/sensor-debs/libssc0_*_arm64.deb"
+	chroot rootdir sh -c "dpkg -i /tmp/sensor-debs/hexagonrpcd_*_arm64.deb"
+	chroot rootdir sh -c "dpkg -i /tmp/sensor-debs/iio-sensor-proxy_*_arm64.deb"
+	chroot rootdir apt-get install -f -y
+	rm -rf rootdir/tmp/sensor-debs
+}
+
+install_sensor_local_debs "$SENSOR_DEB_DIR"
 
 # 修改服务配置
 if [[ "$SYSTEM_TYPE" == *"debian-"* ]]; then
@@ -301,58 +348,31 @@ elif [[ "$SYSTEM_TYPE" == *"phosh"* || "$SYSTEM_TYPE" == *"gnome"* ]]; then
 fi
 
 # ================================================================
-# 音频：Raphael 设备专用策略（配合 alsa-xiaomi-raphael UCM）
+# 音频：Raphael TFA9874 软件音量（保留 PipeWire，兼容远程桌面）
 # ----------------------------------------------------------------
-# 扬声器 TFA9874 在 UCM 中没有硬件音量控件，PipeWire 默认走 HW mixer
-# 路径会导致音量极小/几乎无声；PulseAudio 走软件音量则正常。
-#
-# - 低版本（jammy 等仍提供 pulseaudio 包）：用 PulseAudio 作音频服务。
-#   只 mask PipeWire 用户服务，绝不 purge 包（purge 会级联卸载 GNOME 桌面）。
-# - 高版本（noble 等无独立 pulseaudio 包）：保留 PipeWire，注入 WirePlumber
-#   soft-mixer 配置，强制软件音量 + 默认 100%。
+# TFA9874 扬声器在 UCM 中无 HW 音量控件，PipeWire 默认 HW mixer → 几乎无声。
+# 通过 WirePlumber soft-mixer 修复音量，同时保留 PipeWire 栈供 GNOME 远程桌面/
+# 屏幕共享（依赖 pipewire + portal）使用。
+# 切勿 mask PipeWire 改 PulseAudio——会破坏 gnome-remote-desktop / RDP。
 # ================================================================
-echo "[$(date +'%Y-%m-%d %H:%M:%S')] [06]   └─ 配置音频服务 (Raphael 适配)"
+echo "[$(date +'%Y-%m-%d %H:%M:%S')] [06]   └─ 配置音频 (PipeWire soft-mixer，保留远程桌面)"
 
-_use_pulseaudio=false
-if chroot rootdir apt-cache show pulseaudio >/dev/null 2>&1; then
-    _use_pulseaudio=true
+PW_CANDIDATES="pipewire pipewire-pulse pipewire-audio pipewire-alsa \
+    pipewire-audio-client-libraries libspa-0.2-bluetooth wireplumber"
+PW_INSTALL=""
+for p in $PW_CANDIDATES; do
+    if chroot rootdir apt-cache show "$p" >/dev/null 2>&1; then
+        PW_INSTALL="$PW_INSTALL $p"
+    fi
+done
+if [ -n "$PW_INSTALL" ]; then
+    echo "[$(date +'%Y-%m-%d %H:%M:%S')] [06]   └─ 确保 PipeWire 包:$PW_INSTALL"
+    chroot rootdir apt-get install -y $PW_INSTALL
 fi
 
-if [ "$_use_pulseaudio" = true ]; then
-    # ── 路径 A：PulseAudio（jammy / bookworm 等）────────────────────────
-    echo "[$(date +'%Y-%m-%d %H:%M:%S')] [06]   └─ 使用 PulseAudio（本发行版可用，避免 PipeWire 音量异常）"
-    chroot rootdir apt-get install -y pulseaudio pulseaudio-utils
-
-    # 屏蔽 PipeWire 用户服务（保留包以满足桌面依赖，但不自启）
-    for unit in pipewire.socket pipewire-pulse.socket pipewire.service \
-                pipewire-pulse.service wireplumber.service \
-                pipewire-media-session.service; do
-        chroot rootdir systemctl --global mask "$unit" 2>/dev/null || true
-    done
-    chroot rootdir systemctl --global unmask pulseaudio.service pulseaudio.socket 2>/dev/null || true
-    chroot rootdir systemctl --global enable pulseaudio.service pulseaudio.socket 2>/dev/null || true
-
-else
-    # ── 路径 B：PipeWire + soft-mixer 修复（noble / resolute 等）────────
-    echo "[$(date +'%Y-%m-%d %H:%M:%S')] [06]   └─ 使用 PipeWire + soft-mixer 修复（本发行版无独立 pulseaudio）"
-
-    PW_CANDIDATES="pipewire pipewire-pulse pipewire-audio pipewire-alsa \
-        pipewire-audio-client-libraries libspa-0.2-bluetooth wireplumber"
-    PW_INSTALL=""
-    for p in $PW_CANDIDATES; do
-        if chroot rootdir apt-cache show "$p" >/dev/null 2>&1; then
-            PW_INSTALL="$PW_INSTALL $p"
-        fi
-    done
-    echo "[$(date +'%Y-%m-%d %H:%M:%S')] [06]   └─ 安装 PipeWire 包:$PW_INSTALL"
-    chroot rootdir apt-get install -y $PW_INSTALL
-
-    # TFA9874 扬声器无 HW 音量控件 → 强制软件混音 + 输出节点默认 100% 音量
-    install -d rootdir/etc/wireplumber/wireplumber.conf.d
-    cat > rootdir/etc/wireplumber/wireplumber.conf.d/50-raphael-soft-mixer.conf << 'EOF'
-# Raphael (TFA9874): speaker has no ALSA HW volume control in UCM.
-# PipeWire defaults to HW mixer path → near-silent output.
-# Force software volume and set default output to 100%.
+install -d rootdir/etc/wireplumber/wireplumber.conf.d
+cat > rootdir/etc/wireplumber/wireplumber.conf.d/50-raphael-soft-mixer.conf << 'EOF'
+# Raphael (TFA9874): no ALSA HW volume in UCM → force software mixer.
 monitor.alsa.rules = [
   {
     matches = [ { device.name = "~alsa_card.*" } ]
@@ -376,12 +396,15 @@ monitor.rules = [
 ]
 EOF
 
-    chroot rootdir systemctl --global unmask \
-        pipewire.socket pipewire-pulse.socket pipewire.service \
-        pipewire-pulse.service wireplumber.service 2>/dev/null || true
-    chroot rootdir systemctl --global enable \
-        pipewire.socket pipewire-pulse.socket wireplumber.service 2>/dev/null || true
-fi
+# 若旧镜像曾 mask PipeWire 改 PulseAudio，此处恢复（远程桌面需要 PipeWire）
+for unit in pipewire.socket pipewire-pulse.socket pipewire.service \
+            pipewire-pulse.service wireplumber.service \
+            pipewire-media-session.service; do
+    chroot rootdir systemctl --global unmask "$unit" 2>/dev/null || true
+done
+chroot rootdir systemctl --global mask pulseaudio.service pulseaudio.socket 2>/dev/null || true
+chroot rootdir systemctl --global enable \
+    pipewire.socket pipewire-pulse.socket wireplumber.service 2>/dev/null || true
 
 echo "[$(date +'%Y-%m-%d %H:%M:%S')] [06]   └─ 音频配置完成 ✅"
 
