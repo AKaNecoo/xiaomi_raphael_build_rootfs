@@ -145,6 +145,9 @@ EOF
 	cat > rootdir/usr/local/sbin/raphael-audio-setup.sh << 'EOF'
 #!/bin/bash
 # PipeWire bring-up: Q6 routes + normal 100% volume (never overdrive).
+# Also undo GNOME Remote Desktop stealing the default sink (auto_null /
+# grd_remote_audio_*), which makes browser/media silent on the speaker
+# while short system sounds may still work via the runtime fallback.
 set -euo pipefail
 for _ in 1 2 3 4 5 6 7 8 9 10; do
 	if wpctl status >/dev/null 2>&1; then
@@ -157,6 +160,23 @@ amixer -c 0 sset 'SLIMBUS_0_RX Audio Mixer MultiMedia1' on >/dev/null 2>&1 || tr
 ROUTES="${HOME}/.local/state/wireplumber/default-routes"
 if [ -f "$ROUTES" ] && grep -qE 'channelVolumes=0\.[0-9]' "$ROUTES" 2>/dev/null; then
 	sed -i -E 's/channelVolumes=0\.[0-9.]+;0\.[0-9.]+;/channelVolumes=1.0;1.0;/' "$ROUTES" 2>/dev/null || true
+fi
+NODES="${HOME}/.local/state/wireplumber/default-nodes"
+if [ -f "$NODES" ] && grep -qE 'auto_null|grd_remote' "$NODES" 2>/dev/null; then
+	SPEAKER=$(wpctl status 2>/dev/null | sed -n '/Sinks:/,/Sources:/p' \
+		| sed -n 's/.*[[:space:]]\([0-9]\+\)\.[[:space:]]*.*Speaker.*/\1/p' | head -1)
+	if [ -n "${SPEAKER:-}" ]; then
+		SNAME=$(pw-cli info "$SPEAKER" 2>/dev/null | sed -n 's/.*node.name = "\([^"]*\)".*/\1/p' | head -1)
+		if [ -n "${SNAME:-}" ]; then
+			cat > "$NODES" << NODEOF
+[default-nodes]
+default.configured.audio.sink=${SNAME}
+default.configured.audio.sink.0=${SNAME}
+NODEOF
+			pw-metadata -n default 0 default.configured.audio.sink "{\"name\":\"${SNAME}\"}" >/dev/null 2>&1 || true
+			wpctl set-default "$SPEAKER" 2>/dev/null || true
+		fi
+	fi
 fi
 if wpctl status >/dev/null 2>&1; then
 	# Prefer current jack state if headset switch already ran; else speaker

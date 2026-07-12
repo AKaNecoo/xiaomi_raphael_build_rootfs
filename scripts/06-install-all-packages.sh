@@ -299,6 +299,27 @@ EOF
                     exit 1
                 fi
 
+                # HTML5 视频：Mozilla Firefox 用系统 FFmpeg 解 H.264/AAC；
+                # 缺包时站点会提示「浏览器不支持 HTML5」。
+                echo "[$(date +'%Y-%m-%d %H:%M:%S')] [06]   └─ 安装 Firefox HTML5 编解码依赖 (ffmpeg/openh264)"
+                chroot rootdir apt-get install -y ffmpeg libopenh264-7 \
+                    gstreamer1.0-libav gstreamer1.0-plugins-ugly || true
+                install -d rootdir/usr/lib/firefox/distribution
+                cat > rootdir/usr/lib/firefox/distribution/policies.json << 'EOF'
+{
+  "policies": {
+    "Preferences": {
+      "media.ffmpeg.enabled": { "Value": true, "Status": "default" },
+      "media.ffvpx.enabled": { "Value": true, "Status": "default" },
+      "media.rdd-ffmpeg.enabled": { "Value": true, "Status": "default" },
+      "media.eme.enabled": { "Value": true, "Status": "default" },
+      "media.gmp-gmpopenh264.enabled": { "Value": true, "Status": "default" },
+      "media.gmp-gmpopenh264.autoupdate": { "Value": true, "Status": "default" }
+    }
+  }
+}
+EOF
+
                 # Mozilla 的 firefox deb 自带 /usr/share/applications/firefox.desktop
                 # (Exec=firefox, Icon=firefox, StartupWMClass=firefox)，无需自定义。
                 # 复制到 skel/Desktop 作为桌面图标。

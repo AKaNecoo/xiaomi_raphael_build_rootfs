@@ -685,8 +685,14 @@ power-button-action='nothing'
 # 避免电池空闲走 suspend（本机唤醒不可靠，表现为黑屏只能重启）
 sleep-inactive-ac-type='nothing'
 sleep-inactive-battery-type='nothing'
-# ALS claim 失败时环境光自动亮度可能把屏拉到接近 0
+# ALS claim 失败时环境光自动亮度可能把屏拉到接近 0（看视频像“自动黑屏”）
 ambient-enabled=false
+# 看视频时不要空闲先 dim；由 screensaver / 电源键负责熄屏
+idle-dim=false
+
+[org/gnome/desktop/session]
+# 空闲锁屏；播放视频时 Firefox 应通过 portal Inhibit 抑制
+idle-delay=uint32 600
 
 [org/gnome/desktop/screensaver]
 # 空闲/熄屏后锁定；电源键唤醒只亮屏，不调用 Unlock
