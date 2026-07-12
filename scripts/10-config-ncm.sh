@@ -6,9 +6,9 @@ echo "[$(date +'%Y-%m-%d %H:%M:%S')] [10] 📱 配置 USB NCM 网络"
 echo "[$(date +'%Y-%m-%d %H:%M:%S')] [10]   └─ 创建 dnsmasq 配置"
 
 # 手机 usb0 固定 172.16.42.1；电脑走 DHCP 自动分配 172.16.42.2–254
+# 勿用 bind-dynamic：/etc/dnsmasq.d/ubuntu-fan 已设 bind-interfaces，二者互斥。
 cat > rootdir/etc/dnsmasq.d/usb-ncm.conf << 'EOF'
 interface=usb0
-bind-dynamic
 port=0
 dhcp-authoritative
 log-dhcp

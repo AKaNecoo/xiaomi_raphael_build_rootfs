@@ -1,5 +1,4 @@
 interface=usb0
-bind-dynamic
 port=0
 dhcp-authoritative
 log-dhcp
