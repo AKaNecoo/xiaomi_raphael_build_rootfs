@@ -161,47 +161,172 @@ EOF
 	install -d rootdir/usr/local/sbin
 	cat > rootdir/usr/local/sbin/raphael-audio-setup.sh << 'EOF'
 #!/bin/bash
-# PipeWire bring-up: Q6 routes + normal 100% volume (never overdrive).
-# Also undo GNOME Remote Desktop stealing the default sink (auto_null /
-# grd_remote_audio_*), which makes browser/media silent on the speaker
-# while short system sounds may still work via the runtime fallback.
+# Force UCM HiFi → Speaker (TFA9874). Never use pro-audio / auto_null.
+# If ALSA card is gone (WCD/SlimBus ENOSPC after bad RDP audio), only reboot helps —
+# do NOT keep restarting WirePlumber (that makes SlimBus worse).
 set -euo pipefail
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=${XDG_RUNTIME_DIR}/bus}"
+
 for _ in 1 2 3 4 5 6 7 8 9 10; do
-	if wpctl status >/dev/null 2>&1; then
-		break
-	fi
+	wpctl status >/dev/null 2>&1 && break
 	sleep 1
 done
+
+alsa_card_present() {
+	grep -qE '^\s*[0-9]+\s+\[' /proc/asound/cards 2>/dev/null
+}
+
+if ! alsa_card_present; then
+	logger -t raphael-audio-setup "no ALSA card (/proc/asound/cards empty) → reboot required"
+	exit 2
+fi
+
 amixer -c 0 sset 'QUAT_MI2S_RX Audio Mixer MultiMedia2' on >/dev/null 2>&1 || true
 amixer -c 0 sset 'SLIMBUS_0_RX Audio Mixer MultiMedia1' on >/dev/null 2>&1 || true
-ROUTES="${HOME}/.local/state/wireplumber/default-routes"
-if [ -f "$ROUTES" ] && grep -qE 'channelVolumes=0\.[0-9]' "$ROUTES" 2>/dev/null; then
-	sed -i -E 's/channelVolumes=0\.[0-9.]+;0\.[0-9.]+;/channelVolumes=1.0;1.0;/' "$ROUTES" 2>/dev/null || true
+
+ensure_hifi() {
+	local cards
+	cards=$(pactl list cards 2>/dev/null || true)
+	echo "$cards" | grep -qE 'HiFi:|HiFi quality' || return 1
+	pactl set-card-profile alsa_card.platform-sound HiFi >/dev/null 2>&1 || true
+	sleep 1
+	pactl list cards 2>/dev/null | grep -qE '活动配置：HiFi|Active Profile: HiFi'
+}
+
+# Wait for ACP/UCM to expose HiFi (boot race: ExecStartPost often runs too early)
+for _ in $(seq 1 15); do
+	ensure_hifi && break
+	sleep 1
+done
+# One WirePlumber restart only when card exists but HiFi still missing after wait
+if ! ensure_hifi; then
+	if ! alsa_card_present; then
+		logger -t raphael-audio-setup "ALSA card vanished → reboot required"
+		exit 2
+	fi
+	logger -t raphael-audio-setup "HiFi missing after wait → restart wireplumber once"
+	systemctl --user restart wireplumber.service 2>/dev/null || true
+	sleep 5
+	for _ in $(seq 1 10); do
+		ensure_hifi && break
+		sleep 1
+	done
 fi
+
+pick_sink() {
+	wpctl status 2>/dev/null | sed -n '/Sinks:/,/Sources:/p' \
+		| sed -n "s/.*[[:space:]]\([0-9]\+\)\.[[:space:]]*.*$1.*/\1/p" | head -1
+}
+
+ID=$(pick_sink 'Speaker')
+[ -z "${ID:-}" ] && ID=$(pick_sink 'Headphone')
+if [ -z "${ID:-}" ]; then
+	logger -t raphael-audio-setup "no Speaker/Headphone sink after HiFi attempt"
+	exit 1
+fi
+
+SNAME=$(pw-cli info "$ID" 2>/dev/null | sed -n 's/.*node.name = "\([^"]*\)".*/\1/p' | head -1)
+case "${SNAME:-}" in
+	*pro-output*|*auto_null*|*grd_remote*)
+		logger -t raphael-audio-setup "refusing non-HiFi node $SNAME"
+		exit 1
+		;;
+esac
+
 NODES="${HOME}/.local/state/wireplumber/default-nodes"
-if [ -f "$NODES" ] && grep -qE 'auto_null|grd_remote' "$NODES" 2>/dev/null; then
-	SPEAKER=$(wpctl status 2>/dev/null | sed -n '/Sinks:/,/Sources:/p' \
-		| sed -n 's/.*[[:space:]]\([0-9]\+\)\.[[:space:]]*.*Speaker.*/\1/p' | head -1)
-	if [ -n "${SPEAKER:-}" ]; then
-		SNAME=$(pw-cli info "$SPEAKER" 2>/dev/null | sed -n 's/.*node.name = "\([^"]*\)".*/\1/p' | head -1)
-		if [ -n "${SNAME:-}" ]; then
-			cat > "$NODES" << NODEOF
+mkdir -p "$(dirname "$NODES")"
+cat > "$NODES" << NODEOF
 [default-nodes]
 default.configured.audio.sink=${SNAME}
 default.configured.audio.sink.0=${SNAME}
 NODEOF
-			pw-metadata -n default 0 default.configured.audio.sink "{\"name\":\"${SNAME}\"}" >/dev/null 2>&1 || true
-			wpctl set-default "$SPEAKER" 2>/dev/null || true
-		fi
-	fi
+pw-metadata -n default 0 default.configured.audio.sink "{\"name\":\"${SNAME}\"}" >/dev/null 2>&1 || true
+pw-metadata -n default 0 default.audio.sink "{\"name\":\"${SNAME}\"}" >/dev/null 2>&1 || true
+wpctl set-default "$ID" >/dev/null 2>&1 || true
+pactl set-default-sink "$SNAME" >/dev/null 2>&1 || true
+wpctl set-mute "$ID" 0 >/dev/null 2>&1 || true
+wpctl set-volume "$ID" 1.0 >/dev/null 2>&1 || true
+
+ROUTES="${HOME}/.local/state/wireplumber/default-routes"
+if [ -f "$ROUTES" ] && grep -qE 'channelVolumes=0\.[0-9]' "$ROUTES" 2>/dev/null; then
+	sed -i -E 's/channelVolumes=0\.[0-9.]+;0\.[0-9.]+;/channelVolumes=1.0;1.0;/' "$ROUTES" 2>/dev/null || true
 fi
-if wpctl status >/dev/null 2>&1; then
-	# Prefer current jack state if headset switch already ran; else speaker
-	wpctl set-mute @DEFAULT_AUDIO_SINK@ 0 2>/dev/null || true
-	wpctl set-volume @DEFAULT_AUDIO_SINK@ 1.0 2>/dev/null || true
-fi
+logger -t raphael-audio-setup "restored $SNAME id=$ID"
 EOF
 	chmod 755 rootdir/usr/local/sbin/raphael-audio-setup.sh
+
+	# Restore HiFi after RDP disconnect. NEVER fight an active RDP session
+	# (remote-audio → 虚拟输出 is expected; restarting WP then kills WCD/SlimBus).
+	cat > rootdir/usr/local/sbin/raphael-rdp-audio-watch.sh << 'EOF'
+#!/bin/bash
+# After GNOME Remote Desktop disconnect, restore HiFi Speaker.
+# While --handover is running, leave sinks alone (remote audio uses 虚拟输出).
+set -euo pipefail
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=${XDG_RUNTIME_DIR}/bus}"
+RESTORE=/usr/local/sbin/raphael-audio-setup.sh
+had_handover=0
+cooldown=0
+
+rdp_active() {
+	pgrep -f 'gnome-remote-desktop-daemon --handover' >/dev/null 2>&1
+}
+
+alsa_card_present() {
+	grep -qE '^\s*[0-9]+\s+\[' /proc/asound/cards 2>/dev/null
+}
+
+needs_restore() {
+	local def desc cards
+	def=$(pactl get-default-sink 2>/dev/null || true)
+	case "${def:-}" in
+		*auto_null*|*grd_remote*|*pro-output*|"") return 0 ;;
+	esac
+	desc=$(wpctl status 2>/dev/null | sed -n '/Sinks:/,/Sources:/p' \
+		| sed -n 's/.*\*[[:space:]]*[0-9]\+\.[[:space:]]*\(.*\)/\1/p' | head -1)
+	case "${desc:-}" in
+		*虚拟*|*Pro\ *|*\ Pro|*Pro) return 0 ;;
+	esac
+	cards=$(pactl list cards 2>/dev/null || true)
+	echo "$cards" | grep -qE '活动配置：HiFi|Active Profile: HiFi' || return 0
+	echo "${desc:-}" | grep -qE 'Speaker|Headphone|TFA|WCD' && return 1
+	return 0
+}
+
+while true; do
+	if rdp_active; then
+		had_handover=1
+	elif [ "$had_handover" = 1 ]; then
+		sleep 2
+		logger -t raphael-rdp-audio "RDP handover ended → restore HiFi Speaker"
+		rc=0
+		"$RESTORE" 2>/dev/null || rc=$?
+		had_handover=0
+		# exit 2 = ALSA dead; stop thrashing until reboot
+		if [ "$rc" = 2 ] || ! alsa_card_present; then
+			logger -t raphael-rdp-audio "ALSA/WCD dead → reboot required (cooldown 5min)"
+			cooldown=100
+		else
+			cooldown=5
+		fi
+	elif [ "$cooldown" -gt 0 ]; then
+		cooldown=$((cooldown - 1))
+	elif needs_restore && ! rdp_active; then
+		logger -t raphael-rdp-audio "bad sink/profile → restore HiFi Speaker"
+		rc=0
+		"$RESTORE" 2>/dev/null || rc=$?
+		if [ "$rc" = 2 ] || ! alsa_card_present; then
+			logger -t raphael-rdp-audio "ALSA/WCD dead → reboot required (cooldown 5min)"
+			cooldown=100
+		else
+			cooldown=10
+		fi
+	fi
+	sleep 3
+done
+EOF
+	chmod 755 rootdir/usr/local/sbin/raphael-rdp-audio-watch.sh
 
 	# Headset jack → switch default sink + enable WCD headphone mixers
 	cat > rootdir/usr/local/sbin/raphael-headset-switch.sh << 'EOF'
@@ -312,6 +437,26 @@ RestartSec=2
 WantedBy=default.target
 EOF
 
+	cat > rootdir/etc/systemd/user/raphael-rdp-audio-watch.service << 'EOF'
+[Unit]
+Description=Raphael restore HiFi Speaker after RDP / virtual sink
+After=pipewire.service wireplumber.service
+Wants=wireplumber.service
+
+[Service]
+ExecStart=/usr/local/sbin/raphael-rdp-audio-watch.sh
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target
+EOF
+	# Noble 用户单元常从 /etc/xdg/systemd/user 加载；勿 PartOf=graphical-session
+	# （会话抖动会把 watch 杀掉，断 RDP 后无法恢复默认 sink）
+	install -d rootdir/etc/xdg/systemd/user
+	cp rootdir/etc/systemd/user/raphael-rdp-audio-watch.service \
+		rootdir/etc/xdg/systemd/user/raphael-rdp-audio-watch.service
+
 	install -d rootdir/etc/systemd/user/wireplumber.service.d
 	cat > rootdir/etc/systemd/user/wireplumber.service.d/raphael-audio.conf << 'EOF'
 [Service]
@@ -323,6 +468,8 @@ EOF
 		rootdir/etc/systemd/user/default.target.wants/raphael-audio-setup.service
 	ln -sf /etc/systemd/user/raphael-headset-switch.service \
 		rootdir/etc/systemd/user/default.target.wants/raphael-headset-switch.service
+	ln -sf /etc/systemd/user/raphael-rdp-audio-watch.service \
+		rootdir/etc/systemd/user/default.target.wants/raphael-rdp-audio-watch.service
 
 	for unit in pipewire.socket pipewire-pulse.socket pipewire.service \
 	            pipewire-pulse.service wireplumber.service \
@@ -332,7 +479,8 @@ EOF
 	chroot rootdir systemctl --global mask pulseaudio.service pulseaudio.socket 2>/dev/null || true
 	chroot rootdir systemctl --global enable \
 	    pipewire.socket pipewire-pulse.socket wireplumber.service \
-	    raphael-audio-setup.service raphael-headset-switch.service 2>/dev/null || true
+	    raphael-audio-setup.service raphael-headset-switch.service \
+	    raphael-rdp-audio-watch.service 2>/dev/null || true
 fi
 
 echo "[$(date +'%Y-%m-%d %H:%M:%S')] [06b] ✅ 音频配置完成"

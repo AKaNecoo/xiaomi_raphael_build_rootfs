@@ -17,14 +17,14 @@
 
 | 硬件 | 状态 | 说明 |
 |---|---|---|
-| 屏幕显示 | ✅ | |
-| 触摸屏 | ✅ | |
+| 屏幕显示 | ✅ | 偶发黑白颠倒；熄屏再亮或重启可恢复 |
+| 触摸屏 | ✅ | 需**原装**屏幕 |
 | GPU 渲染 | ✅ | |
 | Wi-Fi | ✅ | 2.4G / 5G 双频 |
 | 蓝牙 | ✅ | 文件传输 / 音频输出 |
 | 蜂窝 / 基带 | ✅ | SIM 识别、注册、移动数据（IPv4/IPv6）；**上网须插 SIM2**；电信 / 联通正常，**移动异常**，广电未测试 |
 | USB | ✅ | SSH / OTG / NCM 网络共享 |
-| 音频（扬声器 / 耳机） | ✅ | |
+| 音频（扬声器 / 耳机） | ✅ | 耳机须**慢插**到位才识别；快插可能检测不到 |
 | 电池 | ✅ | 电量检测 |
 | 实时时钟 | ✅ | |
 | 手电筒 | ✅ | 含亮度调节 |
@@ -176,10 +176,10 @@ ping -4 -c 3 www.baidu.com
 - 默认配置**清华软件源**，预装简体中文语言包与中国标准时区，开箱汉化
 - 内置 SSH 服务，支持 root / 普通用户远程登录；支持 USB NCM 网络共享
 - **蜂窝基带开箱可用**：匹配 modem 固件（00161）+ 内核 IPA 数据面修复 + SIM 开机自动初始化 + QRTR 版 ModemManager（QMAPv4）
-- **音频**：预装 **`alsa-xiaomi-raphael`**（K20 专属 UCM）；**jammy / bookworm** 默认 **PulseAudio**；**noble+ / trixie+** 默认 **PipeWire + soft-mixer + S16LE**（扬声器可正常音量）；GNOME 新版会纠正 Remote Desktop 抢走默认 sink（`auto_null`）导致浏览器无声的问题
+- **音频**：预装 **`alsa-xiaomi-raphael`**（K20 专属 UCM）；**jammy / bookworm** 默认 **PulseAudio**；**noble+ / trixie+** 默认 **PipeWire + soft-mixer + S16LE**（扬声器可正常音量）。GNOME 带 `raphael-rdp-audio-watch`：RDP 断开后自动拉回 **HiFi → Speaker (TFA9874)**，不会在远程会话进行中乱切/狂重启 WirePlumber
 - **浏览器媒体（GNOME）**：预装 ffmpeg / openh264 等，避免「不支持 HTML5 视频」类提示
 - **桌面**：GNOME / Phosh；**GNOME 电源键**短按熄/亮屏，长按约 **1s** 弹出关机菜单；服务器版开机约 15 秒自动熄屏，快捷命令 `leijun`（关屏）/ `jinfan`（点亮）
-- **GNOME Remote Login（noble+ / trixie+）**：系统级 RDP（默认账号同 `user`/`1234`），首次开机自动启用；依赖 PipeWire，与会话内「桌面共享」不是同一套
+- **GNOME Remote Login（noble+ / trixie+）**：系统级 RDP（默认账号同 `user`/`1234`），首次开机自动启用；依赖 PipeWire，与会话内「桌面共享」不是同一套；客户端请关闭「远程音频」（见注意事项）
 - **引导与 DTB**：rEFInd 通过 `dtb=\dtbs\qcom\sm8150-xiaomi-raphael.dtb` 加载 vendor 上固件路径正确的设备树（`.mdt`）；Plymouth 厂商开机动画
 
 ---
@@ -244,6 +244,11 @@ sudo bash -c "$(curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/
 - **移动数据默认不自动连接**：需手动 `nmcli connection up <连接名>`，详见 2.5。
 - **必须刷齐 boot + vendor + cust + userdata**：缺 `cust` 进不了 rEFInd；缺 `vendor` 或 `refind_linux.conf` 无 `dtb=` 时会沿用 U-Boot 旧 FDT（固件名 `.mbn`），导致 ADSP/modem/SLPI/IPA 起不来，表现为**声音 / Wi-Fi / 基带 / 传感器一起挂**。
 - **音频依赖 `alsa-xiaomi-raphael` + 正确音频栈**：jammy/bookworm → PulseAudio；noble+/trixie+ GNOME → **必须 PipeWire**（Remote Login / portal 依赖）。**切勿 purge PipeWire**（会拆 GNOME），也**切勿在 noble GNOME 上改装 PulseAudio 并 mask PipeWire**（RDP 投屏会报 `Couldn't connect pipewire context`）。勿随意 `autoremove`。
+- **有线耳机须慢插入**：插到底并稍作停留后再松手，过快插入可能无法识别耳机；拔掉后扬声器应自动切回。
+- **RDP 客户端勿开「远程音频」**：客户端若选「在此计算机上播放」，会话内会出现**虚拟输出**（`auto_null`）。请改为**在远程计算机上播放**或**不播放**：
+  - Windows 远程桌面：本地资源 → 远程音频 → 设置 → **在远程计算机上播放**（或不要播放）
+  - FreeRDP / Remmina：音频模式选 **Local** / 禁用重定向（勿选 Redirect）
+  - 断开 RDP 后，`raphael-rdp-audio-watch` 会自动恢复 **HiFi → Speaker (TFA9874)**。若设置里只剩虚拟输出、且没有扬声器/耳机选项，说明 WCD/SlimBus 已挂，**需重启手机**才能恢复（软件切换无效）。
 - **Windows 连不上设备 CDC NCM**：参考解决方案视频 [BV1tW4y1A79V](https://www.bilibili.com/video/BV1tW4y1A79V/)。
 - 基带固化细节见 `基带测试/RAPHAEL-MODEM-STATUS.md`。
 
@@ -253,6 +258,7 @@ sudo bash -c "$(curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/
 
 当前镜像上仍未解决（或待验证）的问题：
 
+- **屏幕偶发黑白颠倒**：熄屏后再亮，或重启即可恢复。
 - **环境光传感器**：读数 / 自动亮度链路尚不正常。
 - **近距离传感器**：尚不正常。
 - **Venus 硬件加速**：视频硬解 / 编码尚不正常。

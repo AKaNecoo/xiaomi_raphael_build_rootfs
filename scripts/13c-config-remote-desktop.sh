@@ -17,6 +17,11 @@ set -e
 #
 # 依赖同栈音频(06b 新版 GNOME 路径)：PipeWire 勿被 mask；否则投屏
 # 报 Couldn't connect pipewire context。与桌面共享无关。
+#
+# 客户端若开启「远程音频 / 在此计算机上播放」，会话里会出现虚拟输出
+# (auto_null)。06b 的 raphael-rdp-audio-watch 在 RDP 断开后自动拉回
+# HiFi Speaker；会话进行中不干预。请仍在客户端改为「在远程计算机上播放」
+# （grd 服务端无独立开关）。WCD 被打挂后只能重启恢复。
 # ================================================================
 
 if [ "$DESKTOP_ENV" != "gnome" ]; then
