@@ -29,6 +29,15 @@ cp -a "$PLYMOUTH_SRC/themes/$THEME_NAME" "$THEMES_DST/"
 rm -f "$THEMES_DST/$THEME_NAME/render-anim.py" \
       "$THEMES_DST/$THEME_NAME/"*.orig 2>/dev/null || true
 
+# Bundle CJK font in the theme (initramfs ships the whole theme directory).
+WQY_FONT=$(chroot rootdir sh -c 'ls /usr/share/fonts/truetype/wqy/wqy-microhei.ttc 2>/dev/null || ls /usr/share/fonts/*/wqy/wqy-microhei.ttc 2>/dev/null' | head -1)
+if [ -n "$WQY_FONT" ] && [ -f "rootdir$WQY_FONT" ]; then
+	cp -a "rootdir$WQY_FONT" "$THEMES_DST/$THEME_NAME/wqy-microhei.ttc"
+	echo "[$(date +'%Y-%m-%d %H:%M:%S')] [08b]   └─ 打包中文字体 wqy-microhei"
+else
+	echo "[$(date +'%Y-%m-%d %H:%M:%S')] [08b] ⚠️  未找到 wqy-microhei，Plymouth 中文可能乱码" >&2
+fi
+
 # 2. Static fallback image used by the two-step path on machines without an
 #    ACPI BGRT table (this device). Harmless even with the script theme active.
 if [ -f "$PLYMOUTH_SRC/themes/spinner/bgrt-fallback.png" ]; then
@@ -42,6 +51,38 @@ fi
 echo "[$(date +'%Y-%m-%d %H:%M:%S')] [08b]   └─ 启用 initramfs FRAMEBUFFER ..."
 mkdir -p rootdir/etc/initramfs-tools/conf.d
 echo "FRAMEBUFFER=y" > rootdir/etc/initramfs-tools/conf.d/plymouth.conf
+
+# CJK font + fontconfig for Plymouth Image.Text in early boot initramfs.
+echo "[$(date +'%Y-%m-%d %H:%M:%S')] [08b]   └─ initramfs 中文字体 hook ..."
+cat > rootdir/etc/initramfs-tools/hooks/plymouth-cjk-font << 'EOF'
+#!/bin/sh
+PREREQS=""
+case $1 in
+prereqs) echo "$PREREQS"; exit 0;;
+esac
+
+. /usr/share/initramfs-tools/hook-functions
+
+for font in \
+	/usr/share/fonts/truetype/wqy/wqy-microhei.ttc \
+	/usr/share/plymouth/themes/bgrt/wqy-microhei.ttc
+do
+	[ -f "$font" ] || continue
+	mkdir -p "${DESTDIR}/usr/share/fonts/truetype/wqy"
+	cp "$font" "${DESTDIR}/usr/share/fonts/truetype/wqy/wqy-microhei.ttc"
+	break
+done
+
+if [ -f /etc/fonts/fonts.conf ]; then
+	mkdir -p "${DESTDIR}/etc/fonts/conf.d"
+	cp /etc/fonts/fonts.conf "${DESTDIR}/etc/fonts/"
+	for conf in /etc/fonts/conf.d/65-nonlatin.conf /etc/fonts/conf.d/44-wqy-microhei.conf; do
+		[ -f "$conf" ] || continue
+		cp -L "$conf" "${DESTDIR}/etc/fonts/conf.d/" 2>/dev/null || cp "$conf" "${DESTDIR}/etc/fonts/conf.d/"
+	done
+fi
+EOF
+chmod +x rootdir/etc/initramfs-tools/hooks/plymouth-cjk-font
 
 # 4. Make our theme the default.
 echo "[$(date +'%Y-%m-%d %H:%M:%S')] [08b]   └─ 设为默认主题 ..."

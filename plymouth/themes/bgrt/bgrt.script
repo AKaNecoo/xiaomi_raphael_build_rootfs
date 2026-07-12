@@ -47,9 +47,10 @@ fun refresh_callback() {
 Plymouth.SetRefreshFunction(refresh_callback);
 
 // --- Status messages (fsck progress, systemd jobs, etc.) ---
+FONT_NAME = "WenQuanYi Micro Hei 16";
 message.sprite = Sprite();
 fun message_callback(text) {
-    message.image = Image.Text(text, 0.7, 0.7, 0.7);
+    message.image = Image.Text(text, 0.7, 0.7, 0.7, 1.0, FONT_NAME, "center");
     message.sprite.SetImage(message.image);
     message.sprite.SetPosition(
         screen_width / 2 - message.image.GetWidth() / 2,
@@ -67,7 +68,7 @@ fun display_password_callback(prompt_text, bullets) {
         line += " *";
         k++;
     }
-    prompt.image = Image.Text(line, 1, 1, 1);
+    prompt.image = Image.Text(line, 1.0, 1.0, 1.0, 1.0, FONT_NAME, "center");
     prompt.sprite.SetImage(prompt.image);
     prompt.sprite.SetPosition(
         screen_width / 2 - prompt.image.GetWidth() / 2,
@@ -78,6 +79,6 @@ Plymouth.SetDisplayPasswordFunction(display_password_callback);
 
 // Clear the password prompt when returning to the normal display.
 fun display_normal_callback() {
-    prompt.sprite.SetImage(Image.Text("", 0, 0, 0));
+    prompt.sprite.SetImage(Image.Text("", 0, 0, 0, 0, FONT_NAME, "center"));
 }
 Plymouth.SetDisplayNormalFunction(display_normal_callback);

@@ -6,3 +6,4 @@ ModuleName=script
 [script]
 ImageDir=/usr/share/plymouth/themes/bgrt
 ScriptFile=/usr/share/plymouth/themes/bgrt/bgrt.script
+MonospaceFont=WenQuanYi Micro Hei 16
