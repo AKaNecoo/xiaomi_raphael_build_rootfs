@@ -47,7 +47,7 @@ fun refresh_callback() {
 Plymouth.SetRefreshFunction(refresh_callback);
 
 // --- Status messages (fsck progress, systemd jobs, etc.) ---
-FONT_NAME = "WenQuanYi Micro Hei 16";
+FONT_NAME = "Noto Sans CJK SC 16";
 message.sprite = Sprite();
 fun message_callback(text) {
     message.image = Image.Text(text, 0.7, 0.7, 0.7, 1.0, FONT_NAME, "center");
