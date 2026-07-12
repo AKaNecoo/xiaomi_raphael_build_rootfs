@@ -17,7 +17,7 @@ set -e
 #     移动数据需 qrtr8+ ModemManager（QMAPv4 patch，见 基带测试/mm/mm 编译产物）。
 #   5) NetworkManager DNS —— dns=none，NM 不接管 /etc/resolv.conf；resolv.conf
 #      由 04 写死公共 DNS（223.5.5.5/114.114.114.114），不跟随运营商下发。
-#   6) raphael-cmcc-diff-mcfg —— SIM init 后、MM 前切 ROW MCFG（移动卡）。
+#   6) raphael-cmcc-diff-mcfg —— 移动卡：禁用 VoLTE CMCC MBN + 切 ROW，按需重启 modem。
 #   7) raphael-wifi-recover —— modem soft-restart 后 ath10k 常 HTT 超时，自动 rebind。
 
 echo "[$(date +'%Y-%m-%d %H:%M:%S')] [10b] 📡 配置基带 modem 服务 + 崩溃隔离"
@@ -155,16 +155,21 @@ EOF
 chmod 755 rootdir/usr/local/sbin/raphael-no-mobile-data.sh
 
 # ---------------------------------------------------------------------------
-echo "[$(date +'%Y-%m-%d %H:%M:%S')] [10b]   └─ raphael-cmcc-diff-mcfg.sh (CMCC soft-restart)"
+echo "[$(date +'%Y-%m-%d %H:%M:%S')] [10b]   └─ raphael-cmcc-diff-mcfg.sh (CMCC ROW + volte disable)"
 cat > rootdir/usr/local/sbin/raphael-cmcc-diff-mcfg.sh << 'EOF'
 #!/bin/sh
-# Before ModemManager: deactivate VoLTE CMCC, activate ROW, verified modem stop/start.
-# Diff: CMCC commercial MCFG is Volte_OpenMkt only; CT/CU openmkt stay stable.
+# CMCC: VoLTE commercial MCFG triggers rflm_qlnk RF assert. Use ROW instead.
+# - Only when CMCC SIM (46000/46002/46007/46008)
+# - Disable volte_op MBN so modem stops re-selecting it every boot
+# - Modem restart only when ROW not yet Active after PDC switch
 set -eu
 QRTR=qrtr://0
 LOG=/var/log/raphael-cmcc-diff-mcfg.log
+VOLTE_MBN=/lib/firmware/qcom/sm8150/Xiaomi/raphael/modem_pr/mcfg/configs/mcfg_sw/generic/china/cmcc/commerci/volte_op/mcfg_sw.mbn
 CMCC_ID_FALLBACK='3A:89:6F:35:5D:EA:B6:10:3B:A9:E0:E8:3C:9E:17:DE:1B:C7:E5:08'
 ROW_ID_FALLBACK='1E:6B:3C:74:D4:91:9D:E5:CA:30:F4:39:F0:A3:48:71:54:3C:2F:FA'
+WIFI_DEV=18800000.wifi
+WIFI_DRV=/sys/bus/platform/drivers/ath10k_snoc
 
 exec >>"$LOG" 2>&1
 echo "==== $(date -Is) start ===="
@@ -192,36 +197,21 @@ modem_rp() {
 	return 1
 }
 
-wait_modem_not_running() {
-	rp=$1
+wait_modem_state() {
+	want=$1
+	max=${2:-90}
+	rp=$(modem_rp) || return 1
 	i=0
-	while [ "$i" -lt 30 ]; do
+	while [ "$i" -lt "$max" ]; do
 		st=$(cat "$rp/state" 2>/dev/null || echo unknown)
-		echo "modem state=$st (waiting not-running) t=${i}s"
-		case "$st" in
-		running) ;;
-		*) return 0 ;;
-		esac
+		echo "modem state=$st want=$want t=${i}s"
+		[ "$st" = "$want" ] && return 0
 		i=$((i + 1))
 		sleep 1
 	done
 	return 1
 }
 
-wait_modem_running() {
-	rp=$1
-	i=0
-	while [ "$i" -lt 90 ]; do
-		st=$(cat "$rp/state" 2>/dev/null || echo unknown)
-		echo "modem state=$st (waiting running) t=${i}s"
-		[ "$st" = running ] && return 0
-		i=$((i + 1))
-		sleep 1
-	done
-	return 1
-}
-
-# One ID only (first match). qmicli type,id parsing breaks on newlines.
 parse_id_for_desc() {
 	needle=$1
 	awk -v n="$needle" '
@@ -242,7 +232,81 @@ parse_id_for_desc() {
 	' | head -n1
 }
 
+active_desc() {
+	awk '
+		/Description:/ { d=$0 }
+		/Status:/ {
+			if ($0 ~ /Active/) {
+				print d
+				exit
+			}
+		}
+	'
+}
+
+is_cmcc_sim() {
+	status=$(qmicli -p -d "$QRTR" --uim-get-card-status 2>/dev/null || true)
+	# IMSI when exposed by firmware (quotes optional).
+	echo "$status" | grep -qE "IMSI:[[:space:]]*'?460(00|02|07|08|13)" && return 0
+	# Home PLMN / operator hints in card or NAS.
+	echo "$status" | grep -qE "MCC:[[:space:]]*'?460" && \
+		echo "$status" | grep -qE "MNC:[[:space:]]*'?(00|02|07|08|13)" && return 0
+	nas=$(qmicli -p -d "$QRTR" --nas-get-home-network 2>/dev/null || true)
+	echo "$nas" | grep -qE "MCC:[[:space:]]*'?460" && \
+		echo "$nas" | grep -qE "MNC:[[:space:]]*'?(00|02|07|08|13)" && return 0
+	return 1
+}
+
+needs_cmcc_row() {
+	is_cmcc_sim && return 0
+	printf '%s\n' "$1" | awk '
+		/Description:/ { d=$0 }
+		/Status:/ {
+			if (d ~ /Volte_OpenMkt-Commercial-CMCC/ && $0 ~ /Active|Pending/) {
+				exit 0
+			}
+		}
+		END { exit 1 }
+	'
+}
+
+recover_wifi() {
+	# WiFi QMI rides on QRTR; needs modem running.
+	[ "$(cat "$(modem_rp)/state" 2>/dev/null)" = running ] || {
+		echo "wifi recover skipped: modem not running"
+		return 1
+	}
+	if [ -e /sys/class/net/wlan0 ]; then
+		echo "wlan0 already up"
+		return 0
+	fi
+	[ -d "$WIFI_DRV" ] || return 1
+	echo "recover_wifi: rebind $WIFI_DEV"
+	echo "$WIFI_DEV" >"$WIFI_DRV/unbind" 2>/dev/null || true
+	sleep 2
+	echo "$WIFI_DEV" >"$WIFI_DRV/bind" 2>/dev/null || true
+	i=0
+	while [ "$i" -lt 20 ]; do
+		if [ -e /sys/class/net/wlan0 ]; then
+			echo "wlan0 recovered after ${i}s"
+			nmcli device set wlan0 managed yes 2>/dev/null || true
+			nmcli radio wifi on 2>/dev/null || true
+			return 0
+		fi
+		i=$((i + 1))
+		sleep 1
+	done
+	echo "wifi recover failed"
+	return 1
+}
+
 wait_qmi || exit 0
+
+# CT/CU never use this file; disabling stops CMCC VoLTE auto-select every cold boot.
+if [ -f "$VOLTE_MBN" ]; then
+	mv "$VOLTE_MBN" "${VOLTE_MBN}.disabled"
+	echo "disabled $VOLTE_MBN"
+fi
 
 LIST=$(qmicli -p -d "$QRTR" --pdc-list-configs=software 2>/dev/null || true)
 printf '%s\n' "$LIST" | awk '
@@ -250,67 +314,71 @@ printf '%s\n' "$LIST" | awk '
 	/Status:/ { s=$0; if (s ~ /Active|Pending/) print d ORS s }
 '
 
-ACTIVE_DESC=$(printf '%s\n' "$LIST" | awk '
-	/Description:/ { d=$0 }
-	/Status:/ {
-		if ($0 ~ /Active/) {
-			print d
-			exit
-		}
-	}
-')
-case "$ACTIVE_DESC" in
+ACTIVE=$(printf '%s\n' "$LIST" | active_desc)
+case "$ACTIVE" in
 *ROW_Commercial*)
-	echo "ROW already Active → skip MCFG switch/modem restart (protect WiFi)"
+	echo "ROW already Active → no PDC/restart"
+	recover_wifi || true
 	echo "==== $(date -Is) done ===="
 	exit 0
 	;;
 esac
 
+if ! needs_cmcc_row "$LIST"; then
+	echo "not CMCC (no CMCC SIM / Volte CMCC MCFG) → skip PDC switch"
+	echo "==== $(date -Is) done ===="
+	exit 0
+fi
+echo "CMCC path detected"
+
 CMCC_ID=$(printf '%s\n' "$LIST" | parse_id_for_desc "Volte_OpenMkt-Commercial-CMCC")
 ROW_ID=$(printf '%s\n' "$LIST" | parse_id_for_desc "ROW_Commercial")
 [ -n "${CMCC_ID:-}" ] || CMCC_ID=$CMCC_ID_FALLBACK
 [ -n "${ROW_ID:-}" ] || ROW_ID=$ROW_ID_FALLBACK
-# strip any accidental whitespace/newlines
 CMCC_ID=$(printf '%s' "$CMCC_ID" | tr -d '\r\n[:space:]')
 ROW_ID=$(printf '%s' "$ROW_ID" | tr -d '\r\n[:space:]')
-echo "CMCC_ID=$CMCC_ID"
-echo "ROW_ID=$ROW_ID"
+echo "CMCC_ID=$CMCC_ID ROW_ID=$ROW_ID"
 
-echo "deactivate CMCC VoLTE"
-if qmicli -p -d "$QRTR" --pdc-deactivate-config="software,$CMCC_ID"; then
-	echo "deactivate ok"
-else
-	echo "deactivate failed"
+if [ -n "$CMCC_ID" ]; then
+	echo "deactivate CMCC VoLTE"
+	qmicli -p -d "$QRTR" --pdc-deactivate-config="software,$CMCC_ID" || echo "deactivate failed"
 fi
 
 echo "activate ROW"
-if qmicli -p -d "$QRTR" --pdc-activate-config="software,$ROW_ID"; then
-	echo "activate ok"
-else
-	echo "activate failed"
+qmicli -p -d "$QRTR" --pdc-deactivate-config="software,$ROW_ID" 2>/dev/null || true
+qmicli -p -d "$QRTR" --pdc-activate-config="software,$ROW_ID" || echo "activate failed"
+
+LIST=$(qmicli -p -d "$QRTR" --pdc-list-configs=software 2>/dev/null || true)
+printf '%s\n' "$LIST" | awk '
+	/Description:/ { d=$0 }
+	/Status:/ { s=$0; if (s ~ /Active|Pending/) print d ORS s }
+'
+
+ACTIVE=$(printf '%s\n' "$LIST" | active_desc)
+NEED_RESTART=0
+case "$ACTIVE" in
+*ROW_Commercial*) echo "ROW Active after PDC" ;;
+*Volte_OpenMkt-Commercial-CMCC*) echo "Volte still Active → need modem restart"; NEED_RESTART=1 ;;
+*) echo "ROW not Active ($(echo "$ACTIVE" | head -1)) → need modem restart"; NEED_RESTART=1 ;;
+esac
+
+if [ "$NEED_RESTART" = 1 ]; then
+	rp=$(modem_rp) || exit 0
+	echo "modem stop/start $rp"
+	echo stop >"$rp/state" || true
+	wait_modem_state offline 30 || wait_modem_state crashed 1 || true
+	sleep 1
+	echo start >"$rp/state" || true
+	wait_modem_state running 90 || echo "modem not running after restart"
+	wait_qmi || echo "qmi not ready after restart"
+	LIST=$(qmicli -p -d "$QRTR" --pdc-list-configs=software 2>/dev/null || true)
+	printf '%s\n' "$LIST" | awk '
+		/Description:/ { d=$0 }
+		/Status:/ { s=$0; if (s ~ /Active|Pending/) print d ORS s }
+	'
 fi
 
-echo "--- after switch ---"
-qmicli -p -d "$QRTR" --pdc-list-configs=software 2>/dev/null | awk '
-	/Description:/ { d=$0 }
-	/Status:/ { s=$0; if (s ~ /Active|Pending/) print d ORS s }
-' || true
-
-rp=$(modem_rp) || exit 0
-echo "verified stop/start $rp"
-echo stop >"$rp/state" || echo "ERROR: cannot write stop"
-wait_modem_not_running "$rp" || echo "ERROR: modem still running after stop"
-sleep 1
-echo start >"$rp/state" || echo "ERROR: cannot write start"
-wait_modem_running "$rp" || echo "ERROR: modem not running after start"
-wait_qmi || echo "qmi not ready after restart"
-
-echo "--- final ---"
-qmicli -p -d "$QRTR" --pdc-list-configs=software 2>/dev/null | awk '
-	/Description:/ { d=$0 }
-	/Status:/ { s=$0; if (s ~ /Active|Pending/) print d ORS s }
-' || true
+recover_wifi || true
 echo "==== $(date -Is) done ===="
 EOF
 chmod 755 rootdir/usr/local/sbin/raphael-cmcc-diff-mcfg.sh
@@ -318,55 +386,65 @@ chmod 755 rootdir/usr/local/sbin/raphael-cmcc-diff-mcfg.sh
 echo "[$(date +'%Y-%m-%d %H:%M:%S')] [10b]   └─ raphael-wifi-recover.sh (ath10k after modem MCFG restart)"
 cat > rootdir/usr/local/sbin/raphael-wifi-recover.sh << 'EOF'
 #!/bin/sh
-# After CMCC MCFG modem soft-restart, ath10k often fails HTT (-110) mid-probe.
-# Wait briefly for wlan0; if missing, rebind ath10k_snoc.
+# Fallback: rebind ath10k if missing after boot (modem must be running).
 set -eu
 LOG=/var/log/raphael-wifi-recover.log
+WIFI_DEV=18800000.wifi
+WIFI_DRV=/sys/bus/platform/drivers/ath10k_snoc
+
 exec >>"$LOG" 2>&1
 echo "==== $(date -Is) start ===="
 
-WIFI_DEV=18800000.wifi
-DRV=/sys/bus/platform/drivers/ath10k_snoc
-
 if [ -e /sys/class/net/wlan0 ]; then
 	echo "wlan0 already present"
-	echo "==== $(date -Is) done ===="
 	exit 0
 fi
 
-i=0
-while [ "$i" -lt 35 ]; do
-	if [ -e /sys/class/net/wlan0 ]; then
-		echo "wlan0 appeared after ${i}s"
-		echo "==== $(date -Is) done ===="
-		exit 0
+for rp in /sys/class/remoteproc/remoteproc*; do
+	[ "$(cat "$rp/name" 2>/dev/null)" = modem ] || continue
+	st=$(cat "$rp/state" 2>/dev/null)
+	if [ "$st" != running ]; then
+		echo "modem state=$st → try start"
+		echo start >"$rp/state" 2>/dev/null || true
+		i=0
+		while [ "$i" -lt 60 ]; do
+			st=$(cat "$rp/state" 2>/dev/null)
+			[ "$st" = running ] && break
+			i=$((i + 1))
+			sleep 1
+		done
 	fi
+	break
+done
+
+i=0
+while [ "$i" -lt 15 ]; do
+	qmicli -p -d qrtr://0 --dms-get-ids >/dev/null 2>&1 && break
 	i=$((i + 1))
 	sleep 1
 done
 
-echo "wlan0 missing after ${i}s → rebind $WIFI_DEV"
-if [ ! -d "$DRV" ]; then
-	echo "ERROR: $DRV missing"
-	exit 1
-fi
-echo "$WIFI_DEV" >"$DRV/unbind" 2>/dev/null || true
-sleep 1
-echo "$WIFI_DEV" >"$DRV/bind" 2>/dev/null || true
-
-i=0
-while [ "$i" -lt 25 ]; do
-	if [ -e /sys/class/net/wlan0 ]; then
-		echo "wlan0 recovered after rebind ${i}s"
-		echo "==== $(date -Is) done ===="
-		exit 0
-	fi
-	i=$((i + 1))
-	sleep 1
+attempt=1
+while [ "$attempt" -le 3 ]; do
+	echo "rebind attempt $attempt"
+	echo "$WIFI_DEV" >"$WIFI_DRV/unbind" 2>/dev/null || true
+	sleep 2
+	echo "$WIFI_DEV" >"$WIFI_DRV/bind" 2>/dev/null || true
+	j=0
+	while [ "$j" -lt 20 ]; do
+		if [ -e /sys/class/net/wlan0 ]; then
+			echo "wlan0 recovered attempt=$attempt t=${j}s"
+			nmcli device set wlan0 managed yes 2>/dev/null || true
+			nmcli radio wifi on 2>/dev/null || true
+			exit 0
+		fi
+		j=$((j + 1))
+		sleep 1
+	done
+	attempt=$((attempt + 1))
 done
 
-echo "ERROR: wlan0 still missing after rebind"
-echo "==== $(date -Is) done ===="
+echo "ERROR: wlan0 still missing"
 exit 1
 EOF
 chmod 755 rootdir/usr/local/sbin/raphael-wifi-recover.sh
@@ -410,7 +488,7 @@ EOF
 
 cat > rootdir/etc/systemd/system/raphael-cmcc-diff-mcfg.service << 'EOF'
 [Unit]
-Description=Raphael CMCC modem soft-restart before ModemManager
+Description=Raphael CMCC ROW MCFG before ModemManager
 DefaultDependencies=no
 After=raphael-sim-init.service
 Before=ModemManager.service
@@ -428,7 +506,7 @@ EOF
 
 cat > rootdir/etc/systemd/system/raphael-wifi-recover.service << 'EOF'
 [Unit]
-Description=Raphael recover WiFi after modem MCFG soft-restart
+Description=Raphael recover WiFi after CMCC modem work
 DefaultDependencies=no
 After=raphael-cmcc-diff-mcfg.service
 Wants=raphael-cmcc-diff-mcfg.service
@@ -495,6 +573,13 @@ EOF
 
 # ---------------------------------------------------------------------------
 echo "[$(date +'%Y-%m-%d %H:%M:%S')] [10b]   └─ 启用服务"
+# Disable CMCC VoLTE MCFG in firmware tree (prevents auto-select every boot).
+VOLTE_MBN=rootdir/lib/firmware/qcom/sm8150/Xiaomi/raphael/modem_pr/mcfg/configs/mcfg_sw/generic/china/cmcc/commerci/volte_op/mcfg_sw.mbn
+if [ -f "$VOLTE_MBN" ] && [ ! -f "${VOLTE_MBN}.disabled" ]; then
+	mv "$VOLTE_MBN" "${VOLTE_MBN}.disabled"
+	echo "[$(date +'%Y-%m-%d %H:%M:%S')] [10b]   └─ disabled CMCC volte_op MCFG in firmware tree"
+fi
+
 chroot rootdir systemctl enable raphael-sim-init.service
 chroot rootdir systemctl enable raphael-no-mobile-data.service
 chroot rootdir systemctl enable raphael-cmcc-diff-mcfg.service
