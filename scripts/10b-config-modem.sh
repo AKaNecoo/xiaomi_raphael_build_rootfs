@@ -17,6 +17,9 @@ set -e
 #     移动数据需 qrtr8+ ModemManager（QMAPv4 patch，见 基带测试/mm/mm 编译产物）。
 #   5) NetworkManager DNS —— dns=none，NM 不接管 /etc/resolv.conf；resolv.conf
 #      由 04 写死公共 DNS（223.5.5.5/114.114.114.114），不跟随运营商下发。
+#   6) raphael-cmcc-diff-mcfg —— SIM init 后、MM 前 soft-restart 一次 modem。
+#      电信/联通冷启动即可；移动（Volte_OpenMkt-Commercial-CMCC）冷启动常
+#      rflm_qlnk assert，一次干净 stop/start 后再让 MM 开 RF 可注册并拨 cmnet。
 
 echo "[$(date +'%Y-%m-%d %H:%M:%S')] [10b] 📡 配置基带 modem 服务 + 崩溃隔离"
 
@@ -153,6 +156,150 @@ EOF
 chmod 755 rootdir/usr/local/sbin/raphael-no-mobile-data.sh
 
 # ---------------------------------------------------------------------------
+echo "[$(date +'%Y-%m-%d %H:%M:%S')] [10b]   └─ raphael-cmcc-diff-mcfg.sh (CMCC soft-restart)"
+cat > rootdir/usr/local/sbin/raphael-cmcc-diff-mcfg.sh << 'EOF'
+#!/bin/sh
+# Before ModemManager: deactivate VoLTE CMCC, activate ROW, verified modem stop/start.
+# Diff: CMCC commercial MCFG is Volte_OpenMkt only; CT/CU openmkt stay stable.
+set -eu
+QRTR=qrtr://0
+LOG=/var/log/raphael-cmcc-diff-mcfg.log
+CMCC_ID_FALLBACK='3A:89:6F:35:5D:EA:B6:10:3B:A9:E0:E8:3C:9E:17:DE:1B:C7:E5:08'
+ROW_ID_FALLBACK='1E:6B:3C:74:D4:91:9D:E5:CA:30:F4:39:F0:A3:48:71:54:3C:2F:FA'
+
+exec >>"$LOG" 2>&1
+echo "==== $(date -Is) start ===="
+
+wait_qmi() {
+	i=0
+	while [ "$i" -lt 45 ]; do
+		if qmicli -p -d "$QRTR" --dms-get-ids >/dev/null 2>&1; then
+			echo "qmi ready after ${i}s"
+			return 0
+		fi
+		i=$((i + 1))
+		sleep 1
+	done
+	echo "qmi not ready"
+	return 1
+}
+
+modem_rp() {
+	for rp in /sys/class/remoteproc/remoteproc*; do
+		[ "$(cat "$rp/name" 2>/dev/null)" = modem ] || continue
+		echo "$rp"
+		return 0
+	done
+	return 1
+}
+
+wait_modem_not_running() {
+	rp=$1
+	i=0
+	while [ "$i" -lt 30 ]; do
+		st=$(cat "$rp/state" 2>/dev/null || echo unknown)
+		echo "modem state=$st (waiting not-running) t=${i}s"
+		case "$st" in
+		running) ;;
+		*) return 0 ;;
+		esac
+		i=$((i + 1))
+		sleep 1
+	done
+	return 1
+}
+
+wait_modem_running() {
+	rp=$1
+	i=0
+	while [ "$i" -lt 90 ]; do
+		st=$(cat "$rp/state" 2>/dev/null || echo unknown)
+		echo "modem state=$st (waiting running) t=${i}s"
+		[ "$st" = running ] && return 0
+		i=$((i + 1))
+		sleep 1
+	done
+	return 1
+}
+
+# One ID only (first match). qmicli type,id parsing breaks on newlines.
+parse_id_for_desc() {
+	needle=$1
+	awk -v n="$needle" '
+		/Description:/ {
+			if (id != "" && desc ~ n) { print id; exit }
+			desc=$0; id=""
+			next
+		}
+		/^[\t ]*ID:/ {
+			id=$0
+			sub(/^[\t ]*ID:[\t ]*/, "", id)
+			gsub(/[[:space:]]/, "", id)
+			next
+		}
+		END {
+			if (id != "" && desc ~ n) print id
+		}
+	' | head -n1
+}
+
+wait_qmi || exit 0
+
+LIST=$(qmicli -p -d "$QRTR" --pdc-list-configs=software 2>/dev/null || true)
+printf '%s\n' "$LIST" | awk '
+	/Description:/ { d=$0 }
+	/Status:/ { s=$0; if (s ~ /Active|Pending/) print d ORS s }
+'
+
+CMCC_ID=$(printf '%s\n' "$LIST" | parse_id_for_desc "Volte_OpenMkt-Commercial-CMCC")
+ROW_ID=$(printf '%s\n' "$LIST" | parse_id_for_desc "ROW_Commercial")
+[ -n "${CMCC_ID:-}" ] || CMCC_ID=$CMCC_ID_FALLBACK
+[ -n "${ROW_ID:-}" ] || ROW_ID=$ROW_ID_FALLBACK
+# strip any accidental whitespace/newlines
+CMCC_ID=$(printf '%s' "$CMCC_ID" | tr -d '\r\n[:space:]')
+ROW_ID=$(printf '%s' "$ROW_ID" | tr -d '\r\n[:space:]')
+echo "CMCC_ID=$CMCC_ID"
+echo "ROW_ID=$ROW_ID"
+
+echo "deactivate CMCC VoLTE"
+if qmicli -p -d "$QRTR" --pdc-deactivate-config="software,$CMCC_ID"; then
+	echo "deactivate ok"
+else
+	echo "deactivate failed"
+fi
+
+echo "activate ROW"
+if qmicli -p -d "$QRTR" --pdc-activate-config="software,$ROW_ID"; then
+	echo "activate ok"
+else
+	echo "activate failed"
+fi
+
+echo "--- after switch ---"
+qmicli -p -d "$QRTR" --pdc-list-configs=software 2>/dev/null | awk '
+	/Description:/ { d=$0 }
+	/Status:/ { s=$0; if (s ~ /Active|Pending/) print d ORS s }
+' || true
+
+rp=$(modem_rp) || exit 0
+echo "verified stop/start $rp"
+echo stop >"$rp/state" || echo "ERROR: cannot write stop"
+wait_modem_not_running "$rp" || echo "ERROR: modem still running after stop"
+sleep 1
+echo start >"$rp/state" || echo "ERROR: cannot write start"
+wait_modem_running "$rp" || echo "ERROR: modem not running after start"
+wait_qmi || echo "qmi not ready after restart"
+
+echo "--- final ---"
+qmicli -p -d "$QRTR" --pdc-list-configs=software 2>/dev/null | awk '
+	/Description:/ { d=$0 }
+	/Status:/ { s=$0; if (s ~ /Active|Pending/) print d ORS s }
+' || true
+echo "==== $(date -Is) done ===="
+EOF
+chmod 755 rootdir/usr/local/sbin/raphael-cmcc-diff-mcfg.sh
+
+# ---------------------------------------------------------------------------
 echo "[$(date +'%Y-%m-%d %H:%M:%S')] [10b]   └─ systemd units"
 cat > rootdir/etc/systemd/system/raphael-sim-init.service << 'EOF'
 [Unit]
@@ -189,9 +336,27 @@ ExecStart=/usr/local/sbin/raphael-no-mobile-data.sh
 WantedBy=multi-user.target
 EOF
 
+cat > rootdir/etc/systemd/system/raphael-cmcc-diff-mcfg.service << 'EOF'
+[Unit]
+Description=Raphael CMCC modem soft-restart before ModemManager
+DefaultDependencies=no
+After=raphael-sim-init.service
+Before=ModemManager.service
+Wants=raphael-sim-init.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/raphael-cmcc-diff-mcfg.sh
+TimeoutStartSec=180
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
 cat > rootdir/etc/systemd/system/ModemManager.service.d/raphael.conf << 'EOF'
 [Unit]
-After=raphael-sim-init.service
+After=raphael-sim-init.service raphael-cmcc-diff-mcfg.service
 EOF
 
 # ---------------------------------------------------------------------------
@@ -243,5 +408,6 @@ EOF
 echo "[$(date +'%Y-%m-%d %H:%M:%S')] [10b]   └─ 启用服务"
 chroot rootdir systemctl enable raphael-sim-init.service
 chroot rootdir systemctl enable raphael-no-mobile-data.service
+chroot rootdir systemctl enable raphael-cmcc-diff-mcfg.service
 
 echo "[$(date +'%Y-%m-%d %H:%M:%S')] [10b] ✅ 基带配置完成"
