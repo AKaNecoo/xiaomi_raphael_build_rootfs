@@ -17,9 +17,8 @@ set -e
 #     移动数据需 qrtr8+ ModemManager（QMAPv4 patch，见 基带测试/mm/mm 编译产物）。
 #   5) NetworkManager DNS —— dns=none，NM 不接管 /etc/resolv.conf；resolv.conf
 #      由 04 写死公共 DNS（223.5.5.5/114.114.114.114），不跟随运营商下发。
-#   6) raphael-cmcc-diff-mcfg —— SIM init 后、MM 前 soft-restart 一次 modem。
-#      电信/联通冷启动即可；移动（Volte_OpenMkt-Commercial-CMCC）冷启动常
-#      rflm_qlnk assert，一次干净 stop/start 后再让 MM 开 RF 可注册并拨 cmnet。
+#   6) raphael-cmcc-diff-mcfg —— SIM init 后、MM 前切 ROW MCFG（移动卡）。
+#   7) raphael-wifi-recover —— modem soft-restart 后 ath10k 常 HTT 超时，自动 rebind。
 
 echo "[$(date +'%Y-%m-%d %H:%M:%S')] [10b] 📡 配置基带 modem 服务 + 崩溃隔离"
 
@@ -251,6 +250,23 @@ printf '%s\n' "$LIST" | awk '
 	/Status:/ { s=$0; if (s ~ /Active|Pending/) print d ORS s }
 '
 
+ACTIVE_DESC=$(printf '%s\n' "$LIST" | awk '
+	/Description:/ { d=$0 }
+	/Status:/ {
+		if ($0 ~ /Active/) {
+			print d
+			exit
+		}
+	}
+')
+case "$ACTIVE_DESC" in
+*ROW_Commercial*)
+	echo "ROW already Active → skip MCFG switch/modem restart (protect WiFi)"
+	echo "==== $(date -Is) done ===="
+	exit 0
+	;;
+esac
+
 CMCC_ID=$(printf '%s\n' "$LIST" | parse_id_for_desc "Volte_OpenMkt-Commercial-CMCC")
 ROW_ID=$(printf '%s\n' "$LIST" | parse_id_for_desc "ROW_Commercial")
 [ -n "${CMCC_ID:-}" ] || CMCC_ID=$CMCC_ID_FALLBACK
@@ -298,6 +314,62 @@ qmicli -p -d "$QRTR" --pdc-list-configs=software 2>/dev/null | awk '
 echo "==== $(date -Is) done ===="
 EOF
 chmod 755 rootdir/usr/local/sbin/raphael-cmcc-diff-mcfg.sh
+
+echo "[$(date +'%Y-%m-%d %H:%M:%S')] [10b]   └─ raphael-wifi-recover.sh (ath10k after modem MCFG restart)"
+cat > rootdir/usr/local/sbin/raphael-wifi-recover.sh << 'EOF'
+#!/bin/sh
+# After CMCC MCFG modem soft-restart, ath10k often fails HTT (-110) mid-probe.
+# Wait briefly for wlan0; if missing, rebind ath10k_snoc.
+set -eu
+LOG=/var/log/raphael-wifi-recover.log
+exec >>"$LOG" 2>&1
+echo "==== $(date -Is) start ===="
+
+WIFI_DEV=18800000.wifi
+DRV=/sys/bus/platform/drivers/ath10k_snoc
+
+if [ -e /sys/class/net/wlan0 ]; then
+	echo "wlan0 already present"
+	echo "==== $(date -Is) done ===="
+	exit 0
+fi
+
+i=0
+while [ "$i" -lt 35 ]; do
+	if [ -e /sys/class/net/wlan0 ]; then
+		echo "wlan0 appeared after ${i}s"
+		echo "==== $(date -Is) done ===="
+		exit 0
+	fi
+	i=$((i + 1))
+	sleep 1
+done
+
+echo "wlan0 missing after ${i}s → rebind $WIFI_DEV"
+if [ ! -d "$DRV" ]; then
+	echo "ERROR: $DRV missing"
+	exit 1
+fi
+echo "$WIFI_DEV" >"$DRV/unbind" 2>/dev/null || true
+sleep 1
+echo "$WIFI_DEV" >"$DRV/bind" 2>/dev/null || true
+
+i=0
+while [ "$i" -lt 25 ]; do
+	if [ -e /sys/class/net/wlan0 ]; then
+		echo "wlan0 recovered after rebind ${i}s"
+		echo "==== $(date -Is) done ===="
+		exit 0
+	fi
+	i=$((i + 1))
+	sleep 1
+done
+
+echo "ERROR: wlan0 still missing after rebind"
+echo "==== $(date -Is) done ===="
+exit 1
+EOF
+chmod 755 rootdir/usr/local/sbin/raphael-wifi-recover.sh
 
 # ---------------------------------------------------------------------------
 echo "[$(date +'%Y-%m-%d %H:%M:%S')] [10b]   └─ systemd units"
@@ -348,6 +420,23 @@ Wants=raphael-sim-init.service
 Type=oneshot
 ExecStart=/usr/local/sbin/raphael-cmcc-diff-mcfg.sh
 TimeoutStartSec=180
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+cat > rootdir/etc/systemd/system/raphael-wifi-recover.service << 'EOF'
+[Unit]
+Description=Raphael recover WiFi after modem MCFG soft-restart
+DefaultDependencies=no
+After=raphael-cmcc-diff-mcfg.service
+Wants=raphael-cmcc-diff-mcfg.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/raphael-wifi-recover.sh
+TimeoutStartSec=90
 RemainAfterExit=yes
 
 [Install]
@@ -409,5 +498,6 @@ echo "[$(date +'%Y-%m-%d %H:%M:%S')] [10b]   └─ 启用服务"
 chroot rootdir systemctl enable raphael-sim-init.service
 chroot rootdir systemctl enable raphael-no-mobile-data.service
 chroot rootdir systemctl enable raphael-cmcc-diff-mcfg.service
+chroot rootdir systemctl enable raphael-wifi-recover.service
 
 echo "[$(date +'%Y-%m-%d %H:%M:%S')] [10b] ✅ 基带配置完成"
