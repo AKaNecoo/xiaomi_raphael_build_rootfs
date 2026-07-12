@@ -170,11 +170,55 @@ chroot rootdir sh -c "apt-get remove -y --allow-remove-essential \
 	# 超时后 systemd 发 SIGKILL，对这两类无状态辅助服务可接受。
 	for unit in rmtfs tqftpserv; do
 		install -d "rootdir/etc/systemd/system/${unit}.service.d"
-		cat > "rootdir/etc/systemd/system/${unit}.service.d/timeout-stop.conf" << 'EOF'
+		cat > "rootdir/etc/systemd/system/${unit}.service.d/zz-raphael-timeout-stop.conf" << 'EOF'
 [Service]
 TimeoutStopSec=3
 EOF
 	done
+
+	# ModemManager：modem/QRTR 挂死时 stop 会卡在 QMI timeout（实测可拖 20s+）。
+	install -d rootdir/etc/systemd/system/ModemManager.service.d
+	cat > rootdir/etc/systemd/system/ModemManager.service.d/zz-raphael-timeout-stop.conf << 'EOF'
+[Service]
+TimeoutStopSec=3
+EOF
+
+	# hexagonrpcd 关机/重启时偶发卡在 start-post/glink timeout。
+	install -d rootdir/etc/systemd/system/hexagonrpcd-sdsp.service.d
+	cat > rootdir/etc/systemd/system/hexagonrpcd-sdsp.service.d/zz-raphael-timeout-stop.conf << 'EOF'
+[Service]
+TimeoutStopSec=3
+TimeoutStartSec=15
+EOF
+
+	# 关机时 gdm 用户会话 (user@121) 的 pipewire/wireplumber 常停不干净，
+	# 默认 TimeoutStopSec=120s 会空等。缩短后超时即 SIGKILL。
+	# 用 zz- 前缀保证覆盖发行版其它 drop-in。
+	install -d rootdir/etc/systemd/system/user@.service.d
+	cat > rootdir/etc/systemd/system/user@.service.d/zz-raphael-timeout-stop.conf << 'EOF'
+[Service]
+TimeoutStopSec=3
+EOF
+
+	install -d rootdir/etc/systemd/system/gdm.service.d
+	cat > rootdir/etc/systemd/system/gdm.service.d/zz-raphael-timeout-stop.conf << 'EOF'
+[Service]
+TimeoutStopSec=3
+EOF
+
+	# unattended-upgrades 默认 TimeoutStopSec=30min，一旦卡住会拖死关机。
+	install -d rootdir/etc/systemd/system/unattended-upgrades.service.d
+	cat > rootdir/etc/systemd/system/unattended-upgrades.service.d/zz-raphael-timeout-stop.conf << 'EOF'
+[Service]
+TimeoutStopSec=5
+EOF
+
+	# 全局默认停服务超时（未单独 override 的 unit）；保持较短以免未知挂死。
+	install -d rootdir/etc/systemd/system.conf.d
+	cat > rootdir/etc/systemd/system.conf.d/raphael-timeout.conf << 'EOF'
+[Manager]
+DefaultTimeoutStopSec=8s
+EOF
 
 }
 
