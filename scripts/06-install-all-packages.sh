@@ -166,6 +166,16 @@ chroot rootdir sh -c "apt-get remove -y --allow-remove-essential \
 	chroot rootdir systemctl enable rmtfs.service pd-mapper.service tqftpserv.service
 	# 避免与 rmtfs 主服务竞态（与 Debian 打包策略一致）
 
+	# rmtfs/tqftpserv 关机时常卡在 QRTR 收发包，默认 TimeoutStopSec=90s 严重拖慢关机。
+	# 超时后 systemd 发 SIGKILL，对这两类无状态辅助服务可接受。
+	for unit in rmtfs tqftpserv; do
+		install -d "rootdir/etc/systemd/system/${unit}.service.d"
+		cat > "rootdir/etc/systemd/system/${unit}.service.d/timeout-stop.conf" << 'EOF'
+[Service]
+TimeoutStopSec=3
+EOF
+	done
+
 }
 
 install_qcom_local_debs "$QCOM_DEB_DIR"
