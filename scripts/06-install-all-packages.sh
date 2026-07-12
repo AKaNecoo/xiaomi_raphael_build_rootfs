@@ -206,10 +206,16 @@ install_sensor_local_debs() {
 	# 替换 Ubuntu 自带的无 SSC 版 iio-sensor-proxy
 	chroot rootdir apt-get remove -y iio-sensor-proxy 2>/dev/null || true
 
-	chroot rootdir sh -c "dpkg -i /tmp/sensor-debs/libssc0_*_arm64.deb"
-	chroot rootdir sh -c "dpkg -i /tmp/sensor-debs/hexagonrpcd_*_arm64.deb"
-	chroot rootdir sh -c "dpkg -i /tmp/sensor-debs/iio-sensor-proxy_*_arm64.deb"
-	chroot rootdir apt-get install -f -y
+	# libssc0 依赖 libprotobuf-c1；server 镜像常未预装。
+	# 先装依赖，再用 dpkg+apt -f（勿让 set -e 在 dpkg 缺依赖时提前退出）。
+	chroot rootdir apt-get install -y libprotobuf-c1
+	chroot rootdir sh -c '
+		export DEBIAN_FRONTEND=noninteractive
+		dpkg -i /tmp/sensor-debs/libssc0_*_arm64.deb \
+			/tmp/sensor-debs/hexagonrpcd_*_arm64.deb \
+			/tmp/sensor-debs/iio-sensor-proxy_*_arm64.deb || true
+		apt-get install -f -y
+	'
 	rm -rf rootdir/tmp/sensor-debs
 }
 

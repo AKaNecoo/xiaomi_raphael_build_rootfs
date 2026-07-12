@@ -24,7 +24,9 @@ fi
 
 echo "[$(date +'%Y-%m-%d %H:%M:%S')] [02]   └─ 开始 bootstrap (这可能需要几分钟...)"
 if [ "$BOOTSTRAP_TOOL" = "mmdebstrap" ]; then
-    mmdebstrap --arch=$ARCH $OS_VERSION rootdir
+    # ForceIPv4：GHA 等环境常无可用 IPv6，否则 mirror AAAA 失败
+    mmdebstrap --arch="$ARCH" --aptopt='Acquire::ForceIPv4 "true"' \
+        "$OS_VERSION" rootdir "$MIRROR"
 elif [ "$BOOTSTRAP_TOOL" = "debootstrap" ]; then
     debootstrap --arch=$ARCH $OS_VERSION rootdir $MIRROR
 else

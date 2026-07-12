@@ -453,9 +453,15 @@ WantedBy=default.target
 EOF
 	# Noble 用户单元常从 /etc/xdg/systemd/user 加载；勿 PartOf=graphical-session
 	# （会话抖动会把 watch 杀掉，断 RDP 后无法恢复默认 sink）
+	# Debian 上 /etc/xdg/systemd/user 可能与 /etc/systemd/user 为同一目录（symlink），
+	# 直接 cp 会报 "are the same file"。
 	install -d rootdir/etc/xdg/systemd/user
-	cp rootdir/etc/systemd/user/raphael-rdp-audio-watch.service \
-		rootdir/etc/xdg/systemd/user/raphael-rdp-audio-watch.service
+	_rdp_src=rootdir/etc/systemd/user/raphael-rdp-audio-watch.service
+	_rdp_dst=rootdir/etc/xdg/systemd/user/raphael-rdp-audio-watch.service
+	if [ ! "$_rdp_src" -ef "$_rdp_dst" ]; then
+		cp "$_rdp_src" "$_rdp_dst"
+	fi
+	unset _rdp_src _rdp_dst
 
 	install -d rootdir/etc/systemd/user/wireplumber.service.d
 	cat > rootdir/etc/systemd/user/wireplumber.service.d/raphael-audio.conf << 'EOF'
