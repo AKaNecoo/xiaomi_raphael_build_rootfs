@@ -702,6 +702,11 @@ ubuntu-lock-on-suspend=true
 
 [org/gnome/desktop.lockdown]
 disable-lock-screen=false
+
+# Dock「行为」→ 关闭「显示卷」（vendor/cust/多挂载点否则堆在左侧）
+[org/gnome/shell/extensions/dash-to-dock]
+show-mounts=false
+show-mounts-network=false
 EOF
 if [ ! -f rootdir/etc/dconf/profile/user ]; then
 	cat > rootdir/etc/dconf/profile/user << 'EOF'

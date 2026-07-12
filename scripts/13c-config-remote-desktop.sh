@@ -6,16 +6,33 @@ set -e
 # ----------------------------------------------------------------
 # 目标：系统级 RDP → GDM 登录界面 → 独立远程会话（不是桌面共享）。
 #
+# 需要系统级 Remote Login（grdctl --system），大致对应：
+#   Ubuntu noble+ / Debian trixie+（GNOME 46+）
+# jammy / bookworm 只有会话内桌面共享，本脚本直接跳过。
+#
 # Ubuntu Noble (gnome-remote-desktop 46.x) 已知包装缺陷：
 # handover daemon 未装到 greeter/xdg autostart，且
 # X-GNOME-HiddenUnderSystemd=true 会挡住启动 → Aborting handover。
 # 见 LP:#2154408。本脚本写入无 HiddenUnderSystemd 的 autostart。
 #
-# 依赖同栈音频(06b)：PipeWire 正常即可；与桌面共享无关。
+# 依赖同栈音频(06b 新版 GNOME 路径)：PipeWire 勿被 mask；否则投屏
+# 报 Couldn't connect pipewire context。与桌面共享无关。
 # ================================================================
 
 if [ "$DESKTOP_ENV" != "gnome" ]; then
 	echo "[$(date +'%Y-%m-%d %H:%M:%S')] [13c] ⏭️  非 GNOME，跳过远程桌面"
+	exit 0
+fi
+
+_skip_remote_login=false
+case "${UBUNTU_VERSION:-}" in
+	jammy|focal) _skip_remote_login=true ;;
+esac
+case "${DEBIAN_VERSION:-}" in
+	bookworm|bullseye) _skip_remote_login=true ;;
+esac
+if [ "$_skip_remote_login" = true ]; then
+	echo "[$(date +'%Y-%m-%d %H:%M:%S')] [13c] ⏭️  ${UBUNTU_VERSION:-$DEBIAN_VERSION} 无系统 Remote Login，跳过"
 	exit 0
 fi
 
@@ -142,6 +159,9 @@ grdctl --system rdp set-tls-cert "\$CERT"
 grdctl --system rdp set-tls-key "\$KEY"
 grdctl --system rdp set-credentials "\$RDP_USER" "\$RDP_PASS"
 grdctl --system rdp enable
+
+# Headless encode / EGL 可能访问 render 节点
+usermod -aG render,video gnome-remote-desktop 2>/dev/null || true
 
 systemctl enable gnome-remote-desktop.service
 # Avoid bouncing an already-healthy listener (drops active Remote Login)

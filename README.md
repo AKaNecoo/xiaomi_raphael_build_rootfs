@@ -15,12 +15,26 @@
 
 ### 设备适配状态
 
-当前硬件适配较为完整，主流功能均可用：
-
-- **网络**：2.4G/5G 双频 Wi-Fi、USB NCM 网络共享
-- **蜂窝 / 基带**：SIM 卡识别、网络注册、**移动数据上网（IPv4/IPv6）**；开机插卡不再死机（modem 崩溃隔离 + 匹配固件 00161 + 内核 IPA 数据面修复）
-- **外设**：蓝牙（文件传输 / 音频输出）、USB SSH/OTG、触摸屏、手电筒（含亮度调节）
-- **基础硬件**：屏幕显示、电池检测、实时时钟、GPU 渲染、FDE 加密、PipeWire 音频
+| 硬件 | 状态 | 说明 |
+|---|---|---|
+| 屏幕显示 | ✅ | |
+| 触摸屏 | ✅ | |
+| GPU 渲染 | ✅ | |
+| Wi-Fi | ✅ | 2.4G / 5G 双频 |
+| 蓝牙 | ✅ | 文件传输 / 音频输出 |
+| 蜂窝 / 基带 | ✅ | SIM 识别、注册、移动数据（IPv4/IPv6）；**上网须插 SIM2**；电信 / 联通正常，**移动异常**，广电未测试 |
+| USB | ✅ | SSH / OTG / NCM 网络共享 |
+| 音频（扬声器 / 耳机） | ✅ | |
+| 电池 | ✅ | 电量检测 |
+| 实时时钟 | ✅ | |
+| 手电筒 | ✅ | 含亮度调节 |
+| FDE 加密 | ✅ | |
+| 加速度 / 陀螺仪等 IIO | ✅ | 依赖 SLPI |
+| 环境光 | ❌ | 尚不正常 |
+| 近距离 | ❌ | 尚不正常 |
+| Venus 硬件加速 | ❌ | 尚不正常 |
+| NPU | ❌ | 尚不正常 |
+| GPS | ⏳ | 等待测试 |
 
 ---
 
@@ -28,8 +42,18 @@
 
 ### 2.1 获取镜像
 
-前往本仓库 [Releases](https://github.com/GavinLiuOnline/xiaomi_raphael_build_rootfs/releases) 下载对应机型的 `.zip` 卡刷包，无需本地编译。卡刷包内已整合 **u-boot(boot) + 内核(vendor.img) + 根文件系统(system.img) + logo**（内核刷入 vendor 分区，避免 Recovery 清 cache 导致丢失）。
+前往本仓库 [Releases](https://github.com/GavinLiuOnline/xiaomi_raphael_build_rootfs/releases) 下载对应机型的 `.zip` 卡刷包，无需本地编译。卡刷包分区映射如下：
 
+| 卡刷包内文件 | 刷入分区 | 内容 |
+|---|---|---|
+| `boot.img` | `boot` | U-Boot |
+| `vendor.img` | `vendor` | `/boot`（ext4：内核 / initrd / dtbs / `refind_linux.conf`） |
+| `firmware-update/cust.img` | `cust` | EFI（FAT：rEFInd，`EFI/BOOT/BOOTAA64.EFI`） |
+| `system.img` | `userdata` | 根文件系统 |
+| `firmware-update/logo.img` | `logo` | 开机 logo |
+| `firmware-update/vbmeta.img` / `dtbo.img` | `vbmeta` / `dtbo` | 校验与 DTBO（脚本会先清零再写入） |
+
+> 内核放在 **vendor**、EFI 放在 **cust**，避免 Recovery 清 cache 丢内核，也与 U-Boot `bootefi` 默认找 `EFI/BOOT/` 的布局一致。  
 > 体积超过 GitHub Release 单文件 2GB 限制的镜像（如部分 `ubuntu-gnome` 镜像）会被拆分为 `*.partXX` 分卷，或仅保留在 Actions 的 Artifacts 中。
 
 #### 系统类型对照
@@ -84,30 +108,45 @@ adb sideload 文件名.zip
 
 > ⚠️ **不要把卡刷包放在「内置存储」里刷入！** 卡刷会写入并格式化 userdata（内置存储），放在内置存储上的包会在刷入过程中被清除而导致失败。请使用 **外置 SD 卡** 存放，或用 **adb sideload**（从电脑传入，不占用内置存储）。
 
-#### 方式 B：fastboot 手动刷入（使用 `.7z` 内的 `rootfs.img`）
+#### 方式 B：fastboot 手动刷入
 
-适用于自行解压镜像、单独刷各分区。需额外下载 [u-boot.img](https://github.com/GengWei1997/linux-xiaomi-raphael-uboot/releases/tag/v1.0.0)（选最近日期版本）。
+适用于本地构建产物，或把卡刷包 `.zip` 解压后按同名文件刷入。当前分区结构（与卡刷 `updater-script` 一致）：
+
+| 本地构建产物 | 卡刷包内对应 | 分区 |
+|---|---|---|
+| `pack/boot.img` | `boot.img` | `boot`（U-Boot） |
+| `xiaomi-k20pro-boot.img` | `vendor.img` | `vendor`（`/boot` ext4） |
+| `xiaomi-k20pro-efi.img` | `firmware-update/cust.img` | `cust`（EFI FAT / rEFInd） |
+| `rootfs.img`（可由 `rootfs.7z` 解出） | `system.img` | `userdata` |
+| `pack/firmware-update/logo.img` 等 | 同路径 | `logo` / `vbmeta` / `dtbo` |
 
 ```bash
 # 1. 进入 Fastboot 模式
 adb reboot bootloader
 
-# 2. 擦除分区
+# 2. 擦除（与卡刷脚本一致；会清空 userdata）
 fastboot erase dtbo
 fastboot erase boot
 fastboot erase cache
+fastboot erase vendor
 fastboot erase userdata
+fastboot erase vbmeta
+fastboot erase cust
 
-# 3. 刷入引导与内核
-fastboot flash cache xiaomi-k20pro-boot.img
-fastboot flash boot u-boot.img
-
-# 4. 刷入系统镜像（需先解压 rootfs.7z 得到 rootfs.img）
+# 3. 刷入引导链与系统（以下为本地构建文件名；若解压卡刷包请换成 zip 内同名）
+fastboot flash boot    pack/boot.img
+fastboot flash vendor  xiaomi-k20pro-boot.img
+fastboot flash cust    xiaomi-k20pro-efi.img
 fastboot flash userdata rootfs.img
+fastboot flash logo    pack/firmware-update/logo.img
+fastboot flash vbmeta  pack/firmware-update/vbmeta.img
+fastboot flash dtbo    pack/firmware-update/dtbo.img
 
-# 5. 重启设备
+# 4. 重启
 fastboot reboot
 ```
+
+> ⚠️ **不要再把内核刷进 `cache`**：旧文档的 `fastboot flash cache …` 已废弃。缺少 `cust`（rEFInd）或 `vendor`（内核/DTB）都会导致无法进系统或 Wi-Fi/音频/基带/传感器连环失效。
 
 ### 2.5 首次登录与联网
 
@@ -137,8 +176,11 @@ ping -4 -c 3 www.baidu.com
 - 默认配置**清华软件源**，预装简体中文语言包与中国标准时区，开箱汉化
 - 内置 SSH 服务，支持 root / 普通用户远程登录；支持 USB NCM 网络共享
 - **蜂窝基带开箱可用**：匹配 modem 固件（00161）+ 内核 IPA 数据面修复 + SIM 开机自动初始化 + QRTR 版 ModemManager（QMAPv4）
-- 音频：预装 **`alsa-xiaomi-raphael`**（K20 专属 UCM 声卡路由，出声正常的关键）；低版本（jammy 等）默认 **PulseAudio**，高版本（noble 等）使用 **PipeWire + soft-mixer 修复**（解决扬声器音量极小问题）
-- 桌面版提供 GNOME / Phosh 双环境；**GNOME 桌面电源键**：短按熄/亮屏，长按 3 秒弹出系统关机菜单；服务器版开机 15 秒自动熄屏，自定义快捷命令 `leijun`（关屏）/ `jinfan`（点亮）
+- **音频**：预装 **`alsa-xiaomi-raphael`**（K20 专属 UCM）；**jammy / bookworm** 默认 **PulseAudio**；**noble+ / trixie+** 默认 **PipeWire + soft-mixer + S16LE**（扬声器可正常音量）；GNOME 新版会纠正 Remote Desktop 抢走默认 sink（`auto_null`）导致浏览器无声的问题
+- **浏览器媒体（GNOME）**：预装 ffmpeg / openh264 等，避免「不支持 HTML5 视频」类提示
+- **桌面**：GNOME / Phosh；**GNOME 电源键**短按熄/亮屏，长按约 **1s** 弹出关机菜单；服务器版开机约 15 秒自动熄屏，快捷命令 `leijun`（关屏）/ `jinfan`（点亮）
+- **GNOME Remote Login（noble+ / trixie+）**：系统级 RDP（默认账号同 `user`/`1234`），首次开机自动启用；依赖 PipeWire，与会话内「桌面共享」不是同一套
+- **引导与 DTB**：rEFInd 通过 `dtb=\dtbs\qcom\sm8150-xiaomi-raphael.dtb` 加载 vendor 上固件路径正确的设备树（`.mdt`）；Plymouth 厂商开机动画
 
 ---
 
@@ -154,7 +196,7 @@ ping -4 -c 3 www.baidu.com
    - **内核版本**：`7.0`（默认）/ `6.18`
    - **构建工具**：`mmdebstrap`（默认）/ `debootstrap`
    - **Phosh 变体**：仅 Phosh 镜像生效，`phosh-core`（默认）/ `phosh-full` / `phosh-phone`
-   - **系统版本**：Debian 默认 `trixie`，Ubuntu 默认 `jammy`
+   - **系统版本**：Debian 默认 `trixie`，Ubuntu 默认 `resolute`（可选 `noble` / `jammy`）
 4. 工作流执行完成后，镜像自动打包发布到你 Fork 仓库的 **Releases**（大文件自动拆分为分卷）。
 
 ### 方式二：本地构建
@@ -198,9 +240,10 @@ sudo bash -c "$(curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/
 
 - ⚠️ **卡刷包切勿放在内置存储刷入**：刷机会格式化 userdata（内置存储），放在内置存储上的包会被清除导致失败。请用**外置 SD 卡**或 **adb sideload**。
 - **分卷必须先合并再刷**：`*.partXX` 要下齐、合并成完整 `.zip` 并核对 SHA256 后才能刷入。
-- **刷机有风险**：会擦除 `userdata` 等分区，请提前备份重要数据；务必确认 Bootloader 已解锁。
+- **刷机有风险**：会擦除 `userdata` / `vendor` / `cust` 等分区，请提前备份；务必确认 Bootloader 已解锁。
 - **移动数据默认不自动连接**：需手动 `nmcli connection up <连接名>`，详见 2.5。
-- **音频依赖 `alsa-xiaomi-raphael` + 正确的音频服务**：UCM 配置决定声卡路由；扬声器 TFA9874 无硬件音量控件，高版本 PipeWire 默认会导致音量极小，镜像已按发行版自动选择 PulseAudio（jammy）或 PipeWire soft-mixer 修复（noble）。**切勿 purge PipeWire 包**（会级联卸载 GNOME 桌面），也**切勿 autoremove**。
+- **必须刷齐 boot + vendor + cust + userdata**：缺 `cust` 进不了 rEFInd；缺 `vendor` 或 `refind_linux.conf` 无 `dtb=` 时会沿用 U-Boot 旧 FDT（固件名 `.mbn`），导致 ADSP/modem/SLPI/IPA 起不来，表现为**声音 / Wi-Fi / 基带 / 传感器一起挂**。
+- **音频依赖 `alsa-xiaomi-raphael` + 正确音频栈**：jammy/bookworm → PulseAudio；noble+/trixie+ GNOME → **必须 PipeWire**（Remote Login / portal 依赖）。**切勿 purge PipeWire**（会拆 GNOME），也**切勿在 noble GNOME 上改装 PulseAudio 并 mask PipeWire**（RDP 投屏会报 `Couldn't connect pipewire context`）。勿随意 `autoremove`。
 - **Windows 连不上设备 CDC NCM**：参考解决方案视频 [BV1tW4y1A79V](https://www.bilibili.com/video/BV1tW4y1A79V/)。
 - 基带固化细节见 `基带测试/RAPHAEL-MODEM-STATUS.md`。
 
@@ -208,20 +251,28 @@ sudo bash -c "$(curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/
 
 ## 5. 已知问题
 
-- **大体积镜像不直接发 Release**：部分 `ubuntu-gnome` 镜像超过 2GB，会被拆分为分卷，或仅保留在 Actions Artifacts。
-- **移动数据 ping 域名失败（旧镜像）**：旧镜像 DNS 跟随运营商下发可能不可达；新镜像已固定公共 DNS。旧镜像可手动把 `nameserver 223.5.5.5` / `nameserver 114.114.114.114` 写入 `/etc/resolv.conf`。
-- **扬声器音量极小（旧 noble 镜像）**：TFA9874 扬声器无 ALSA 硬件音量控件，PipeWire 默认走 HW mixer 路径会几乎无声。新镜像已注入 WirePlumber `api.alsa.soft-mixer = true` 修复；旧镜像可手动创建 `/etc/wireplumber/wireplumber.conf.d/50-raphael-soft-mixer.conf` 并 `systemctl --user restart wireplumber`。
-- **RF/modem 稳定性**：当前以"崩溃隔离"为安全网（modem 崩溃不拖垮整机），根因层面的 RF 稳定性仍在跟进。
+当前镜像上仍未解决（或待验证）的问题：
+
+- **环境光传感器**：读数 / 自动亮度链路尚不正常。
+- **近距离传感器**：尚不正常。
+- **Venus 硬件加速**：视频硬解 / 编码尚不正常。
+- **NPU**：尚不可用。
+- **GPS**：尚未完成验证（等待测试）。
+- **中国移动蜂窝数据**：异常；电信 / 联通可用；上网须使用 **SIM2**；广电未测试。
+- **RF / modem 稳定性**：目前以崩溃隔离避免拖垮整机，根因层面的射频稳定性仍在跟进。
 
 ---
 
 ## 6. 鸣谢
 
-本项目基于众多开源项目与开发者成果，特此致谢：
+本项目基于众多开源项目与开发者成果，特此致谢。下列贡献者**不分先后，排名不代表重要性**。
+
+| | | | |
+|:---:|:---:|:---:|:---:|
+| <a href="https://github.com/GengWei1997"><img src="https://github.com/GengWei1997.png" width="64" height="64" alt="GengWei1997"/></a><br/>[GengWei1997](https://github.com/GengWei1997) | <a href="https://github.com/Pc1598"><img src="https://github.com/Pc1598.png" width="64" height="64" alt="Pc1598"/></a><br/>[Pc1598](https://github.com/Pc1598) | <a href="https://github.com/ccmx200"><img src="https://github.com/ccmx200.png" width="64" height="64" alt="ccmx200"/></a><br/>[ccmx200](https://github.com/ccmx200) | <a href="https://github.com/map220v"><img src="https://github.com/map220v.png" width="64" height="64" alt="map220v"/></a><br/>[map220v](https://github.com/map220v) |
+
+同时感谢：
 
 - Linux 内核官方开发团队、Debian / Ubuntu 开源社区、Phosh 桌面开发团队
-- [@璀璨梦星](https://github.com/ccmx200)：项目优化与创新思路支持
-- [@map220v](https://github.com/map220v/ubuntu-xiaomi-nabu)：上游项目参考
-- [@Pc1598](https://github.com/Pc1598)：sm8150-mainline-raphael 设备内核维护
-- [Aospa-raphael-unofficial/linux](https://github.com/Aospa-raphael-unofficial/linux)、[sm8150-mainline/linux](https://gitlab.postmarketos.org/soc/qualcomm-sm8150/linux)：内核源码支持
+- [Aospa-raphael-unofficial/linux](https://github.com/Aospa-raphael-unofficial/linux)、[sm8150-mainline/linux](https://gitlab.postmarketos.org/soc/qualcomm-sm8150/linux) 等内核源码支持
 - 所有开源贡献者与项目使用者

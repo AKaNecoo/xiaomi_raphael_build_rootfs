@@ -8,11 +8,14 @@ set -e
 # 1) 默认采样格式 S24_32LE → 扬声器/耳机几乎无声；强制 S16LE 后 100% 正常
 # 2) WirePlumber 默认音量 0.4^3≈6%；覆盖为 1.0，不超 100%
 #
-# 双路径（按发行版是否提供独立 pulseaudio 包）：
+# 双路径（按发行版默认音频栈）：
 # A) jammy / bookworm 等有 pulseaudio → PulseAudio（软件音量正常）
 #    只 mask PipeWire 用户服务，绝不 purge（避免拆桌面）
-# B) noble / resolute 等无 pulseaudio → PipeWire + soft-mixer + S16LE
-#    保留 PipeWire（GNOME RDP 需要）；耳机插拔由 raphael-headset-switch 切换
+# B) noble / trixie / resolute 等默认 PipeWire → soft-mixer + S16LE
+#    jammy/bookworm 的 GNOME 仍是 PulseAudio，切勿全局强制 PipeWire。
+#    例外：Ubuntu noble+ / Debian trixie+ 的 GNOME（Remote Login）——
+#    仓库里仍可能 apt-cache show 到 pulseaudio，但若装上并 mask PipeWire，
+#    RDP 会报 Couldn't connect pipewire context；仅对该组合强制走路径 B。
 # ================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -24,6 +27,19 @@ echo "[$(date +'%Y-%m-%d %H:%M:%S')] [06b] 🔊 配置音频服务 (Raphael)"
 _use_pulseaudio=false
 if chroot rootdir apt-cache show pulseaudio >/dev/null 2>&1; then
 	_use_pulseaudio=true
+fi
+
+# 新版 GNOME：仓库仍可能有 pulseaudio 包，但桌面/Remote Login 依赖 PipeWire
+_force_pw_gnome=false
+case "${UBUNTU_VERSION:-}" in
+	noble|oracular|plucky|questing|resolute) _force_pw_gnome=true ;;
+esac
+case "${DEBIAN_VERSION:-}" in
+	trixie|forky|sid) _force_pw_gnome=true ;;
+esac
+if [ "$_force_pw_gnome" = true ] && [ "$DESKTOP_ENV" = "gnome" ]; then
+	_use_pulseaudio=false
+	echo "[$(date +'%Y-%m-%d %H:%M:%S')] [06b]   └─ ${UBUNTU_VERSION:-${DEBIAN_VERSION}} GNOME：强制 PipeWire（Remote Login）"
 fi
 
 if [ "$_use_pulseaudio" = true ]; then
@@ -40,8 +56,15 @@ if [ "$_use_pulseaudio" = true ]; then
 	chroot rootdir systemctl --global enable pulseaudio.service pulseaudio.socket 2>/dev/null || true
 
 else
-	# ── 路径 B：PipeWire（noble / resolute 等）──────────────────────────
+	# ── 路径 B：PipeWire（noble / trixie / resolute 等）──────────────────
 	echo "[$(date +'%Y-%m-%d %H:%M:%S')] [06b]   └─ 使用 PipeWire + soft-mixer + S16LE"
+
+	# 若误装了 pulseaudio，卸掉对 PipeWire 的抢占（保留库即可）
+	chroot rootdir systemctl --global unmask pipewire.service pipewire.socket \
+		pipewire-pulse.service pipewire-pulse.socket wireplumber.service \
+		pipewire-media-session.service 2>/dev/null || true
+	chroot rootdir systemctl --global mask pulseaudio.service pulseaudio.socket 2>/dev/null || true
+	chroot rootdir apt-get remove -y pulseaudio 2>/dev/null || true
 
 	PW_CANDIDATES="pipewire pipewire-pulse pipewire-audio pipewire-alsa \
 	    pipewire-audio-client-libraries libspa-0.2-bluetooth wireplumber \
@@ -57,60 +80,56 @@ else
 		chroot rootdir apt-get install -y $PW_INSTALL
 	fi
 
-	# WirePlumber 0.4：默认音量 0.064 → 1.0（正常 100%，不超驱）
+	# WirePlumber 0.4：在官方 50-alsa-config.lua 上启用 soft-mixer + UCM + S16LE。
+	# 不要另写 table.insert 规则文件——会触发 alsa.lua "table index is nil"，
+	# ACP 只剩 off/pro-audio，丢掉 UCM HiFi（Speaker/Headphone）链路。
 	install -d rootdir/etc/wireplumber/main.lua.d
 	if [ -f rootdir/usr/share/wireplumber/main.lua.d/40-device-defaults.lua ]; then
 		sed 's/--\["default-volume"\] = 0.064,/["default-volume"] = 1.0,/' \
 			rootdir/usr/share/wireplumber/main.lua.d/40-device-defaults.lua \
 			> rootdir/etc/wireplumber/main.lua.d/40-device-defaults.lua
 	fi
-
-	cat > rootdir/etc/wireplumber/main.lua.d/51-raphael-soft-mixer.lua << 'EOF'
--- Raphael: soft-mixer (no HW volume on TFA9874; WCD path also uses soft volume).
-alsa_monitor.rules = alsa_monitor.rules or {}
-table.insert(alsa_monitor.rules, {
-  matches = {
-    {
-      { "device.name", "matches", "alsa_card.*" },
-    },
-  },
-  apply_properties = {
-    ["api.alsa.soft-mixer"] = true,
-    ["api.alsa.use-ucm"] = true,
-    ["api.alsa.use-acp"] = true,
-    ["api.acp.auto-port"] = true,
-  },
-})
-table.insert(alsa_monitor.rules, {
-  matches = {
-    {
-      { "node.name", "matches", "alsa_output.*" },
-    },
-  },
-  apply_properties = {
-    ["api.alsa.soft-mixer"] = true,
-  },
-})
-EOF
-
-	# S16LE：PipeWire 默认 S24_32LE 在 Speaker/Headphone 上几乎无声（设备已验证）
-	cat > rootdir/etc/wireplumber/main.lua.d/52-raphael-pcm-format.lua << 'EOF'
--- Force S16LE like PulseAudio — S24_32LE is inaudible on TFA9874 and WCD9340.
-alsa_monitor.rules = alsa_monitor.rules or {}
-table.insert(alsa_monitor.rules, {
-  matches = {
-    {
-      { "node.name", "matches", "alsa_output.*" },
-    },
-  },
-  apply_properties = {
-    ["api.alsa.soft-mixer"] = true,
-    ["audio.format"] = "S16LE",
-    ["audio.rate"] = 48000,
-    ["audio.allowed-rates"] = "[ 48000 ]",
-  },
-})
-EOF
+	if [ -f rootdir/usr/share/wireplumber/main.lua.d/50-alsa-config.lua ]; then
+		cp rootdir/usr/share/wireplumber/main.lua.d/50-alsa-config.lua \
+			rootdir/etc/wireplumber/main.lua.d/50-alsa-config.lua
+		# 启用 UCM（保留 HiFi Speaker/Headphone）+ 软件音量（TFA9874 无硬件音量）
+		sed -i 's/--\["api.alsa.use-ucm"\] = true,/\["api.alsa.use-ucm"\] = true,/' \
+			rootdir/etc/wireplumber/main.lua.d/50-alsa-config.lua
+		sed -i 's/--\["api.alsa.soft-mixer"\] = false,/\["api.alsa.soft-mixer"\] = true,/' \
+			rootdir/etc/wireplumber/main.lua.d/50-alsa-config.lua
+		# S16LE：默认 S24_32LE 在 Speaker/Headphone 上几乎无声
+		sed -i '/matches = {/{
+			:a; n
+			/--\["node.nick"\]/ {
+				i\      ["api.alsa.soft-mixer"] = true,
+				i\      ["audio.format"] = "S16LE",
+				i\      ["audio.rate"] = 48000,
+			}
+		}' rootdir/etc/wireplumber/main.lua.d/50-alsa-config.lua 2>/dev/null || true
+		# 上面复杂 sed 可能因发行版缩进失败；用 Python 可靠注入一次
+		python3 - <<'PY' || true
+from pathlib import Path
+p = Path("rootdir/etc/wireplumber/main.lua.d/50-alsa-config.lua")
+t = p.read_text()
+if '["audio.format"] = "S16LE"' in t:
+    raise SystemExit(0)
+needle = '''    apply_properties = {
+      --["node.nick"]              = "My Node",
+      --["node.description"]       = "My Node Description",
+      --["priority.driver"]        = 100,'''
+repl = '''    apply_properties = {
+      -- Raphael: soft-mixer + S16LE (keep UCM HiFi path)
+      ["api.alsa.soft-mixer"] = true,
+      ["audio.format"] = "S16LE",
+      ["audio.rate"] = 48000,
+      --["node.nick"]              = "My Node",
+      --["node.description"]       = "My Node Description",
+      --["priority.driver"]        = 100,'''
+if needle not in t:
+    raise SystemExit("50-alsa-config.lua node block not found; skip S16LE inject")
+p.write_text(t.replace(needle, repl, 1))
+PY
+	fi
 
 	# WirePlumber 0.5+（resolute 等；0.4 忽略此目录）
 	install -d rootdir/etc/wireplumber/wireplumber.conf.d
@@ -123,7 +142,6 @@ monitor.alsa.rules = [
         api.alsa.soft-mixer = true
         api.alsa.use-ucm = true
         api.alsa.use-acp = true
-        api.acp.auto-port = true
       }
     }
   }
@@ -134,7 +152,6 @@ monitor.alsa.rules = [
         api.alsa.soft-mixer = true
         audio.format = "S16LE"
         audio.rate = 48000
-        audio.allowed-rates = "[ 48000 ]"
       }
     }
   }

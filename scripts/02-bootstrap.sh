@@ -55,8 +55,14 @@ if ! mount -o loop ${EFI_IMG} efidir; then
     exit 1
 fi
 
-echo "[$(date +'%Y-%m-%d %H:%M:%S')] [02]   └─ 部署引导文件 (EFI -> cust, Linux -> vendor /boot)"
+echo "[$(date +'%Y-%m-%d %H:%M:%S')] [02]   └─ 部署引导文件 (EFI/BOOT -> cust, Linux -> vendor /boot)"
+# U-Boot bootefi bootmgr / remamed rEFInd 需要标准路径 EFI/BOOT/BOOTAA64.EFI
+# （旧布局 /boot/BOOTAA64.EFI 不会被识别）
 cp -R ./boot/efi/. efidir/
+if [ ! -f efidir/EFI/BOOT/BOOTAA64.EFI ]; then
+    echo "[$(date +'%Y-%m-%d %H:%M:%S')] [02] ❌ 错误: 缺少 efidir/EFI/BOOT/BOOTAA64.EFI"
+    exit 1
+fi
 if [ -f ./boot/refind_linux.conf ]; then
     cp ./boot/refind_linux.conf rootdir/boot/
 fi
