@@ -34,7 +34,7 @@
 | 近距离 | ❌ | 尚不正常 |
 | Venus 硬件加速 | ❌ | 尚不正常 |
 | NPU | ❌ | 尚不正常 |
-| GPS | ⏳ | 等待测试 |
+| GPS | ✅ | ModemManager QMI LOC → `raphael-gpsd-bridge` → gpsd（`/dev/gps0`） |
 
 ---
 
@@ -263,7 +263,6 @@ sudo bash -c "$(curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/
 - **近距离传感器**：尚不正常。
 - **Venus 硬件加速**：视频硬解 / 编码尚不正常。
 - **NPU**：尚不可用。
-- **GPS**：尚未完成验证（等待测试）。
 - **中国移动蜂窝数据**：异常；电信 / 联通可用；上网须使用 **SIM2**；广电未测试。
 - **RF / modem 稳定性**：目前以崩溃隔离避免拖垮整机，根因层面的射频稳定性仍在跟进。
 

@@ -41,3 +41,11 @@ cp debs/modemmanager-qrtr-sm8150_*_jammy_arm64.deb \
 ```
 
 补丁在 `mm/mm/patches/`，不在 rootfs 仓库内。
+
+## GPS / gpsd
+
+`10e-config-gps.sh`：ModemManager QMI LOC NMEA → `/dev/gps0`（PTY）→ 系统 gpsd。
+
+- 桥接：`/usr/local/sbin/raphael-gpsd-bridge`
+- 服务：`raphael-gpsd-bridge.service`（`After=ModemManager`）
+- 客户端：`gpspipe -w` / `cgps`（本地 `localhost:2947`）
