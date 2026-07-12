@@ -162,15 +162,15 @@ EOF
 	cat > rootdir/usr/local/sbin/raphael-audio-setup.sh << 'EOF'
 #!/bin/bash
 # Force UCM HiFi → Speaker (TFA9874). Never use pro-audio / auto_null.
-# If ALSA card is gone (WCD/SlimBus ENOSPC after bad RDP audio), only reboot helps —
-# do NOT keep restarting WirePlumber (that makes SlimBus worse).
+# If ALSA card is gone (WCD/SlimBus ENOSPC after bad RDP audio), only reboot helps.
+# Do NOT restart WirePlumber from here (deadlocks ExecStartPost / PartOf loops).
 set -euo pipefail
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=${XDG_RUNTIME_DIR}/bus}"
 
 for _ in 1 2 3 4 5 6 7 8 9 10; do
 	wpctl status >/dev/null 2>&1 && break
-	sleep 1
+	sleep 0.5
 done
 
 alsa_card_present() {
@@ -190,28 +190,22 @@ ensure_hifi() {
 	cards=$(pactl list cards 2>/dev/null || true)
 	echo "$cards" | grep -qE 'HiFi:|HiFi quality' || return 1
 	pactl set-card-profile alsa_card.platform-sound HiFi >/dev/null 2>&1 || true
-	sleep 1
+	sleep 0.3
 	pactl list cards 2>/dev/null | grep -qE '活动配置：HiFi|Active Profile: HiFi'
 }
 
-# Wait for ACP/UCM to expose HiFi (boot race: ExecStartPost often runs too early)
-for _ in $(seq 1 15); do
+# Wait for ACP/UCM HiFi; rdp-audio-watch will retry if still missing.
+for _ in $(seq 1 20); do
 	ensure_hifi && break
-	sleep 1
+	sleep 0.5
 done
-# One WirePlumber restart only when card exists but HiFi still missing after wait
 if ! ensure_hifi; then
 	if ! alsa_card_present; then
 		logger -t raphael-audio-setup "ALSA card vanished → reboot required"
 		exit 2
 	fi
-	logger -t raphael-audio-setup "HiFi missing after wait → restart wireplumber once"
-	systemctl --user restart wireplumber.service 2>/dev/null || true
-	sleep 5
-	for _ in $(seq 1 10); do
-		ensure_hifi && break
-		sleep 1
-	done
+	logger -t raphael-audio-setup "HiFi missing after wait (no WP restart)"
+	exit 1
 fi
 
 pick_sink() {
@@ -411,12 +405,13 @@ EOF
 [Unit]
 Description=Raphael audio setup (routes + 100% soft volume)
 After=wireplumber.service pipewire.service pipewire-pulse.service
-PartOf=wireplumber.service
+Wants=wireplumber.service
 
 [Service]
 Type=oneshot
 ExecStart=/usr/local/sbin/raphael-audio-setup.sh
 RemainAfterExit=yes
+TimeoutStartSec=30
 
 [Install]
 WantedBy=default.target
@@ -463,11 +458,11 @@ EOF
 	fi
 	unset _rdp_src _rdp_dst
 
-	install -d rootdir/etc/systemd/user/wireplumber.service.d
-	cat > rootdir/etc/systemd/user/wireplumber.service.d/raphael-audio.conf << 'EOF'
-[Service]
-ExecStartPost=/usr/local/sbin/raphael-audio-setup.sh
-EOF
+	# NEVER put raphael-audio-setup in wireplumber ExecStartPost:
+	# setup used to restart WP while WP was still "starting" → 90s TimeoutStartSec
+	# deadlock and audio only appears after login ~1.5min late.
+	rm -f rootdir/etc/systemd/user/wireplumber.service.d/raphael-audio.conf
+	rmdir rootdir/etc/systemd/user/wireplumber.service.d 2>/dev/null || true
 
 	install -d rootdir/etc/systemd/user/default.target.wants
 	ln -sf /etc/systemd/user/raphael-audio-setup.service \
