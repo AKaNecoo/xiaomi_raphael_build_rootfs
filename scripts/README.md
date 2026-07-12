@@ -44,8 +44,11 @@ cp debs/modemmanager-qrtr-sm8150_*_jammy_arm64.deb \
 
 ## GPS / gpsd
 
-`10e-config-gps.sh`：ModemManager QMI LOC NMEA → `/dev/gps0`（PTY）→ 系统 gpsd。
+`10e-config-gps.sh`：ModemManager QMI LOC NMEA + SSC IMU/地磁 `$OHPR` → 同一 `/dev/gps0`（PTY）→ 系统 gpsd。
 
 - 桥接：`/usr/local/sbin/raphael-gpsd-bridge`
 - 服务：`raphael-gpsd-bridge.service`（`After=ModemManager`）
-- 客户端：`gpspipe -w` / `cgps`（本地 `localhost:2947`）
+- 客户端：`gpspipe -w` / `cgps` / `xgps`（本地 `localhost:2947`）
+- xgps：打开 **ATT Data**；GNSS 与 IMU/地磁同属一个设备，不再双设备切换
+
+`10f-config-imu-gpsd.sh`：清理早期独立的 `raphael-imu-gpsd-bridge` / `/dev/gps-att0`（功能已并入 10e）。
