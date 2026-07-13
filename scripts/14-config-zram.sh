@@ -9,10 +9,13 @@ if [ ! -f rootdir/etc/default/zramswap ]; then
 fi
 
 echo "[$(date +'%Y-%m-%d %H:%M:%S')] [14]   └─ 调整 zramswap 默认参数"
+# Default zramswap uses lz4 when ALGO is commented; Raphael kernel only exposes zstd.
+grep -q '^ALGO=' rootdir/etc/default/zramswap || echo 'ALGO=zstd' >> rootdir/etc/default/zramswap
+grep -q '^SIZE=' rootdir/etc/default/zramswap || echo 'SIZE=4096' >> rootdir/etc/default/zramswap
 sed -i \
-    -e 's/^ALGO=.*/ALGO=zstd/' \
+    -e 's/^#\?ALGO=.*/ALGO=zstd/' \
+    -e 's/^#\?SIZE=.*/SIZE=4096/' \
     -e 's/^PERCENT=.*/# &/' \
-    -e 's/^SIZE=.*/SIZE=10240/' \
     rootdir/etc/default/zramswap
 
 echo "[$(date +'%Y-%m-%d %H:%M:%S')] [14]   └─ 启用 zramswap 服务"

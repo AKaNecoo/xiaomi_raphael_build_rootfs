@@ -179,7 +179,7 @@ ping -4 -c 3 www.baidu.com
 
 - 默认配置**清华软件源**，预装简体中文语言包与中国标准时区，开箱汉化
 - 内置 SSH 服务，支持 root / 普通用户远程登录；支持 USB NCM 网络共享
-- **蜂窝基带开箱可用**：匹配 modem 固件（00161）+ 内核 IPA 数据面修复 + SIM 开机自动初始化 + QRTR 版 ModemManager（QMAPv4）
+- **蜂窝基带开箱可用**：00161 modem 固件 + 内核 IPA 修复 + **CAMCC 驱动 + rpmhpd sync 后再 start modem** + SIM 开机自动初始化 + QRTR ModemManager（QMAPv4）
 - **音频**：预装 **`alsa-xiaomi-raphael`**（K20 专属 UCM）；**jammy / bookworm** 默认 **PulseAudio**；**noble+ / trixie+** 默认 **PipeWire + soft-mixer + S16LE**（扬声器可正常音量）。GNOME 带 `raphael-rdp-audio-watch`：RDP 断开后自动拉回 **HiFi → Speaker (TFA9874)**，不会在远程会话进行中乱切/狂重启 WirePlumber
 - **浏览器媒体（GNOME）**：预装 ffmpeg / openh264 等，避免「不支持 HTML5 视频」类提示
 - **桌面**：GNOME / Phosh；**GNOME 电源键**短按熄/亮屏，长按约 **1s** 弹出关机菜单；服务器版开机约 15 秒自动熄屏，快捷命令 `leijun`（关屏）/ `jinfan`（点亮）
@@ -268,7 +268,7 @@ sudo bash -c "$(curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/
 - **Venus 硬件加速**：视频硬解 / 编码尚不正常。
 - **NPU**：尚不可用。
 - **中国移动蜂窝数据**：可用（firmware 已移除 VoLTE CMCC MCFG，见 build_kernel；手动拨 `cmnet`）；上网须使用 **SIM2**；广电未测试。
-- **RF / modem 稳定性**：目前以崩溃隔离避免拖垮整机，根因层面的射频稳定性仍在跟进。
+- **RF / modem 稳定性**：内核 `CONFIG_SM_CAMCC_8150` + modem 等待 `rpmhpd sync_state` 后再启动；用户态仅保留 SIM 初始化与 crash 隔离（`99-raphael-modem-norecover`），不再使用 RF 延迟 / WiFi 延迟等 workaround。
 
 ---
 

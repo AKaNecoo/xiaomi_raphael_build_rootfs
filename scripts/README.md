@@ -42,6 +42,8 @@ cp debs/modemmanager-qrtr-sm8150_*_jammy_arm64.deb \
 
 补丁在 `mm/mm/patches/`，不在 rootfs 仓库内。
 
+`10b-config-modem.sh` 仅保留 SIM 初始化、移动数据默认关闭、DNS 固定与 modem crash 隔离；RF 时序由内核 `CAMCC` + `rpmhpd sync` 保证，不再安装 boot-offline / rf-online / cmcc-diff / delay-wifi 等用户态 workaround。
+
 ## GPS / gpsd
 
 `10e-config-gps.sh`：ModemManager QMI LOC NMEA + SSC IMU/地磁 `$OHPR` → 同一 `/dev/gps0`（PTY）→ 系统 gpsd。
