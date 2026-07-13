@@ -36,9 +36,9 @@
 | 加速度 / 陀螺仪等 IIO | 依赖 SLPI |  ✅  |
 | GPS | ModemManager QMI LOC → `raphael-gpsd-bridge` → gpsd（`/dev/gps0`） |  ✅  |
 | IMU / 地磁（xgps） | 同桥接写入 `$OHPR` → 同一 `/dev/gps0`（xgps ATT，单设备） |  ✅  |
-| 环境光 | 尚不正常 |  ✅  |
-| 近距离 | 尚不正常 |  ✅  |
-| Venus 硬件加速 | 尚不正常 |  ⏳  |
+| 环境光 |  |  ✅  |
+| 近距离 |  |  ✅  |
+| Venus 硬件加速 | 正在处理 |  ⏳  |
 | NPU | 尚不正常 |  ⏳  |
 | 相机 | 无支持计划 |  ❌  |
 | 通话 | 无支持计划 |  ❌  |
