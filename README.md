@@ -108,16 +108,9 @@ https://github.com/user-attachments/assets/622525051-86af455f-31b5-485b-8f49-3bd
 
 **③ 检查 `cust` 分区是否存在**
 
-部分设备（尤其是之前连接过 Windows 电脑的）可能出现 `cust` 分区丢失的情况。**`cust` 缺失将导致无法进入系统。**
+部分设备（尤其是之做了 Windows 系统的手机）可能出现 `cust` 分区丢失的情况。**`cust` 缺失将导致无法进入系统。**
 
-进入 TWRP 终端（「高级」→「终端」），执行：
-
-```bash
-ls /dev/block/by-name/cust
-```
-
-- 若返回 `/dev/block/by-name/cust -> ...` → 正常，继续下一步。
-- 若提示 `No such file or directory` → `cust` 分区已丢失，须先通过 MIUI 底包恢复该分区后再继续。
+进入 TWRP 「清除」→「高级清除」，查看是否有cust分区
 
 ### 2.5 合并分卷（仅当下载到 `*.partXX` 时）
 
