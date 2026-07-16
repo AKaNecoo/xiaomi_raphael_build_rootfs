@@ -50,9 +50,7 @@
 
 #### 演示视频
 
-[点击查看演示视频](doc/test.mp4)
-
-<video src="doc/test.mp4" controls width="100%"></video>
+https://github.com/user-attachments/assets/622525051-86af455f-31b5-485b-8f49-3bdef1a3f5aa
 
 卡刷包分区映射如下：
 
