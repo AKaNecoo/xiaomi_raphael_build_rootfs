@@ -46,7 +46,15 @@
 
 ### 2.2 获取镜像
 
-前往本仓库 [Releases](https://github.com/GavinLiuOnline/xiaomi_raphael_build_rootfs/releases) 下载对应机型的 `.zip` 卡刷包，无需本地编译。卡刷包分区映射如下：
+前往本仓库 [Releases](https://github.com/GavinLiuOnline/xiaomi_raphael_build_rootfs/releases) 下载对应机型的 `.zip` 卡刷包，无需本地编译。
+
+#### 演示视频
+
+[点击查看演示视频](doc/test.mp4)
+
+<video src="doc/test.mp4" controls width="100%"></video>
+
+卡刷包分区映射如下：
 
 | 卡刷包内文件 | 刷入分区 | 内容 |
 |---|---|---|
