@@ -81,9 +81,45 @@ https://github.com/user-attachments/assets/622525051-86af455f-31b5-485b-8f49-3bd
 
 1. 设备已完成 **Bootloader 解锁**。
 2. 电脑安装好 `adb`、`fastboot`，并配置环境变量。
-3. 已刷入第三方 Recovery（TWRP / OrangeFox）——卡刷方式需要。
+3. 刷入 [TWRP Recovery](https://eu.dl.twrp.me/raphael/twrp-3.7.1_12-1-raphael.img.html)：
+   ```bash
+   fastboot flash recovery twrp-3.7.1_12-1-raphael.img
+   ```
 
-### 2.4 合并分卷（仅当下载到 `*.partXX` 时）
+### 2.4 刷机前注意事项
+
+> ⚠️ **请务必按顺序完成以下步骤，否则可能导致无法进入系统。**
+
+**① 刷入 MIUI 底包（此前已使用 MIUI 可跳过）**
+
+本项目不内置固件分区（firmware），目的是同时兼容 K20 Pro 与 K20 Pro 尊享版。请自行准备对应机型的 **MIUI 底包** 并刷入，以写入 `persist`、`modem`、`dsp` 等底层固件分区。
+
+**② 进入 Recovery 清空所有分区**
+
+进入 TWRP，选择「清除」→「高级清除」，勾选以下分区并滑动清除：
+
+- Dalvik / ART Cache
+- System
+- Data
+- Internal Storage
+- Cache
+- Vendor
+- Cust
+
+**③ 检查 `cust` 分区是否存在**
+
+部分设备（尤其是之前连接过 Windows 电脑的）可能出现 `cust` 分区丢失的情况。**`cust` 缺失将导致无法进入系统。**
+
+进入 TWRP 终端（「高级」→「终端」），执行：
+
+```bash
+ls /dev/block/by-name/cust
+```
+
+- 若返回 `/dev/block/by-name/cust -> ...` → 正常，继续下一步。
+- 若提示 `No such file or directory` → `cust` 分区已丢失，须先通过 MIUI 底包恢复该分区后再继续。
+
+### 2.5 合并分卷（仅当下载到 `*.partXX` 时）
 
 被拆分的卡刷包必须下载**同一个包的全部分卷**、放在同一目录里合并成完整 `.zip` 后才能刷入：
 
@@ -101,7 +137,7 @@ copy /b 文件名.zip.part00 + 文件名.zip.part01 + 文件名.zip.part02 文�
 
 > 未被拆分的卡刷包跳过此步。合并后 SHA256 对不上 = 分卷不全或下载损坏，请重新下载，**切勿刷入**。
 
-### 2.5 刷机
+### 2.6 刷机
 
 #### 方式 A：Recovery 卡刷（推荐，使用 Release 的 `.zip`）
 
@@ -158,7 +194,7 @@ fastboot reboot
 
 > ⚠️ **不要再把内核刷进 `cache`**：旧文档的 `fastboot flash cache …` 已废弃。缺少 `cust`（rEFInd）或 `vendor`（内核/DTB）都会导致无法进系统或 Wi-Fi/音频/基带/传感器连环失效。
 
-### 2.6 首次登录与联网
+### 2.7 首次登录与联网
 
 - **默认账号**：普通用户 `user` / `1234`，超级用户 `root` / `1234`
 - **USB 直连 SSH**：设备默认 IP `172.16.42.1`，连接命令 `ssh user@172.16.42.1`
@@ -181,7 +217,7 @@ ping -4 -c 3 www.baidu.com
 
 > DNS 已固定使用公共 DNS（`223.5.5.5` / `114.114.114.114`），不跟随运营商下发，连上即可解析域名。如需开机自动联网：`sudo nmcli connection modify <连接名> connection.autoconnect yes`。
 
-### 2.7 镜像通用特性
+### 2.8 镜像通用特性
 
 - 默认配置**清华软件源**，预装简体中文语言包与中国标准时区，开箱汉化
 - 内置 SSH 服务，支持 root / 普通用户远程登录；支持 USB NCM 网络共享
