@@ -293,7 +293,13 @@ sudo bash -c "$(curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/
 
 ---
 
-## 5. 已知问题
+## 5. 版本更新
+
+- **最新版本已修复老版本 UFS 造成的无法开机问题**：此前部分搭载较早批次 UFS 闪存的设备在刷入镜像后出现无法启动、卡在开机动画或进入紧急模式的情况，最新版本已针对该问题进行修复，建议相关用户升级到最新 Release。
+
+---
+
+## 6. 已知问题
 
 当前镜像上仍未解决（或待验证）的问题：
 
@@ -307,7 +313,7 @@ sudo bash -c "$(curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/
 
 ---
 
-## 6. 鸣谢
+## 7. 鸣谢
 
 本项目基于众多开源项目与开发者成果，特此致谢。下列贡献者**不分先后，排名不代表重要性**。
 
