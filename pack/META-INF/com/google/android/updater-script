@@ -28,6 +28,14 @@ package_extract_file("firmware-update/logo.img", "/dev/block/bootdevice/by-name/
 package_extract_file("firmware-update/vbmeta.img", "/dev/block/bootdevice/by-name/vbmeta");
 package_extract_file("firmware-update/dtbo.img", "/dev/block/bootdevice/by-name/dtbo");
 package_extract_file("firmware-update/cust.img", "/dev/block/bootdevice/by-name/cust");
+ifelse(
+  run_program("/sbin/e2fsck", "-p", "/dev/block/by-name/userdata"),
+  run_program("/sbin/busybox", "e2fsck", "-p", "/dev/block/by-name/userdata")
+);
+ifelse(
+  run_program("/sbin/resize2fs", "/dev/block/by-name/userdata"),
+  run_program("/sbin/busybox", "resize2fs", "/dev/block/by-name/userdata")
+);
 ui_print(" ");
 ui_print("==================================");
 ui_print("============= Done ===============");
