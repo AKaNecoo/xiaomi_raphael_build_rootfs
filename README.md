@@ -220,6 +220,7 @@ ping -4 -c 3 www.baidu.com
 - **桌面**：GNOME / Phosh；**GNOME 电源键**短按熄/亮屏，长按约 **1s** 弹出关机菜单；服务器版开机约 15 秒自动熄屏，快捷命令 `leijun`（关屏）/ `jinfan`（点亮）
 - **GNOME Remote Login（noble+ / trixie+）**：系统级 RDP（默认账号同 `user`/`1234`），首次开机自动启用；依赖 PipeWire，与会话内「桌面共享」不是同一套；客户端请关闭「远程音频」（见注意事项）
 - **引导与 DTB**：rEFInd 通过 `dtb=\dtbs\qcom\sm8150-xiaomi-raphael.dtb` 加载 vendor 上固件路径正确的设备树（`.mdt`）；Plymouth 厂商开机动画
+- **用户态加固 overlay（本 fork 新增，10g）**：无 SIM 快速开机 + sim-init 超时保护；传感器链解耦 multi-user（raphael-sensors.target）；glink 看门狗自愈；背光节点双名修复（ae94000.dsi.0）；low-memory-monitor / journald 修复。详见 `overlay/README.md`
 
 ---
 

@@ -1,0 +1,18 @@
+[Unit]
+Description=Raphael SIM slot 1 power-on via QMI
+After=remoteproc.target sys-subsystem-net-devices-rmnet_ipa0.device
+Before=ModemManager.service
+Wants=remoteproc.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=120
+ExecStart=/usr/local/sbin/raphael-sim-init.sh
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,2 @@
+SUBSYSTEM=="backlight", KERNEL=="panel0-backlight", ACTION=="add|change", MODE="0666"
+SUBSYSTEM=="backlight", KERNEL=="ae94000.dsi.0", ACTION=="add|change", MODE="0666"

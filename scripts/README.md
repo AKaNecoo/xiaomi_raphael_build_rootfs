@@ -54,3 +54,11 @@ cp debs/modemmanager-qrtr-sm8150_*_jammy_arm64.deb \
 - xgps：打开 **ATT Data**；GNSS 与 IMU/地磁同属一个设备，不再双设备切换
 
 `10f-config-imu-gpsd.sh`：清理早期独立的 `raphael-imu-gpsd-bridge` / `/dev/gps-att0`（功能已并入 10e）。
+
+## 加固 overlay（10g，本 fork 新增）
+
+`10g-config-raphael-hardening.sh`：把仓库根 `overlay/` 目录整体复制进 rootfs（10f 之后），覆盖 06/10b/13b heredoc 与传感器 deb 生成的旧版文件，并处理 systemd 启用链接。
+
+- 修复内容：sim-init 无卡快速跳过 + 超时保护；传感器链解耦 multi-user（raphael-sensors.target）；glink 看门狗；背光节点双名（ae94000.dsi.0）；low-memory-monitor / journald 修复。
+- 文件来源与差异明细：**`../overlay/README.md`**。
+- 维护：改 heredoc / deb 时同步更新 overlay 副本（同一提交）。

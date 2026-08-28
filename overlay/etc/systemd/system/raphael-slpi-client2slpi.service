@@ -1,0 +1,17 @@
+[Unit]
+Description=Client2Slpi RGB push (libssccalapi msg_type=19 / OEM type-10 only)
+After=raphael-slpi-oled-gate.service raphael-slpi-bl-notify.service hexagonrpcd-sdsp.service
+Wants=raphael-slpi-oled-gate.service hexagonrpcd-sdsp.service
+ConditionPathExists=/usr/libexec/raphael-slpi-client2slpi.sh
+
+[Service]
+Type=simple
+Environment=RAPHAEL_COLOR_LUX=1
+Environment=RAPHAEL_PROX_RGB_MODE=hwc
+Environment=RAPHAEL_CLIENT2SLPI_INTERVAL=1.0
+ExecStart=/usr/libexec/raphael-slpi-client2slpi.sh
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=raphael-sensors.target

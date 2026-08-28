@@ -1,0 +1,12 @@
+[Unit]
+Description=Raphael glink wedge watchdog (auto crash-recovery)
+After=systemd-journald.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/raphael-glink-watch.sh
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -51,12 +51,14 @@ on:
       - main
     paths:
       - 'scripts/**'
+      - 'overlay/**'
       - 'config/**'
       - 'build.sh'
       - '*.sh'
   pull_request:
     paths:
       - 'scripts/**'
+      - 'overlay/**'
       - 'config/**'
       - 'build.sh'
       - '*.sh'

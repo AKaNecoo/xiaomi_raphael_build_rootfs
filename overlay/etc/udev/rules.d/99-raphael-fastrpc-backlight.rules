@@ -1,0 +1,6 @@
+# TCS3701 屏下 ALS：hexagonrpcd(fastrpc) 需读写 backlight 节点
+# 实际节点名 ae94000.dsi.0（DRM 面板驱动注册）；panel0-backlight 为预期名，保留兼容。
+SUBSYSTEM=="backlight", KERNEL=="panel0-backlight", ACTION=="add|change", GROUP="fastrpc", MODE="0664", \
+  TAG+="systemd", ENV{SYSTEMD_WANTS}+="hexagonrpcd-sdsp.service"
+SUBSYSTEM=="backlight", KERNEL=="ae94000.dsi.0", ACTION=="add|change", GROUP="fastrpc", MODE="0664", \
+  TAG+="systemd", ENV{SYSTEMD_WANTS}+="hexagonrpcd-sdsp.service"

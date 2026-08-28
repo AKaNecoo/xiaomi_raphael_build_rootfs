@@ -1,0 +1,15 @@
+[Unit]
+Description=TCS3701 OLED gate SW (libssccalapi physical_sensor_test 0x203)
+After=hexagonrpcd-sdsp.service
+Before=raphael-slpi-bl-notify.service iio-sensor-proxy.service
+Wants=hexagonrpcd-sdsp.service
+ConditionPathExists=/usr/libexec/raphael-slpi-oled-gate.py
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/raphael-slpi-oled-gate.py --on
+ExecStop=/usr/libexec/raphael-slpi-oled-gate.py --off
+
+[Install]
+WantedBy=raphael-sensors.target

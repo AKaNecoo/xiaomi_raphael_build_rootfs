@@ -1,0 +1,24 @@
+[Unit]
+Description=Backlight2Slpi daemon (libssccalapi BL+DC+RGB push to TCS3701)
+After=hexagonrpcd-sdsp.service raphael-slpi-oled-gate.service iio-sensor-proxy.service
+Wants=hexagonrpcd-sdsp.service raphael-slpi-oled-gate.service
+ConditionPathExists=/usr/libexec/raphael-slpi-bl-notify.sh
+
+[Service]
+Type=simple
+Environment=RAPHAEL_OEM_ORDER=android
+Environment=RAPHAEL_COLOR_LUX=1
+Environment=RAPHAEL_BL_FIELD9=dbv
+Environment=RAPHAEL_ALS_FOPEN_SYNC=1
+Environment=RAPHAEL_BACKLIGHT_HBM=0
+Environment=RAPHAEL_BL_NOTIFY_CONTINUOUS=1
+Environment=RAPHAEL_GATE_REFRESH_SEC=5
+Environment=RAPHAEL_PROX_RGB_MODE=hwc
+Environment=RAPHAEL_BL_NOTIFY_INTERVAL=1.0
+ExecStartPre=/bin/sh -c 'for i in $(seq 1 120); do test -r /sys/class/backlight/ae94000.dsi.0/brightness -o -r /sys/class/backlight/panel0-backlight/brightness && exit 0; sleep 0.5; done; echo "timeout waiting for backlight node" >&2; exit 1'
+ExecStart=/usr/libexec/raphael-slpi-bl-notify.sh --continuous
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=raphael-sensors.target

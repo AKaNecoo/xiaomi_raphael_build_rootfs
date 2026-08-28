@@ -1,0 +1,10 @@
+[Unit]
+Description=Raphael ALS OEM init (SLPI ambient light sensor setup)
+After=hexagonrpcd-sdsp.service
+ConditionPathExists=/usr/libexec/raphael-als-oem-init.sh
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c '/usr/libexec/raphael-als-oem-init.sh || true'
+ExecStartPost=+/bin/sh -c 'systemctl start --no-block raphael-sensors.target || true'
+TimeoutStartSec=60

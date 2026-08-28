@@ -720,8 +720,10 @@ if ! grep -q 'panel0-backlight' rootdir/etc/udev/rules.d/99-raphael-fastrpc-back
 	:
 fi
 # 允许 seat 用户写背光，便于黑屏唤醒时恢复亮度
+# 背光节点实际名为 ae94000.dsi.0（DRM 面板驱动注册；panel0-backlight 不存在，双名兜底）
 cat > rootdir/etc/udev/rules.d/98-raphael-backlight-wake.rules << 'EOF'
 SUBSYSTEM=="backlight", KERNEL=="panel0-backlight", ACTION=="add|change", MODE="0666"
+SUBSYSTEM=="backlight", KERNEL=="ae94000.dsi.0", ACTION=="add|change", MODE="0666"
 EOF
 cat > rootdir/etc/udev/rules.d/97-raphael-uinput.rules << 'EOF'
 # power-key wake injects synthetic keys; node is often created before rules run
