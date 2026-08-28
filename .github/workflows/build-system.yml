@@ -367,8 +367,8 @@ jobs:
               OS_NAME="Ubuntu"
             fi
             
-            TAG="${SYS_TYPE}-v${KERN_VER}-${OS_VER}-${RUN_DATE}"
-            RELEASE_TITLE="${OS_NAME} ${SYS_TYPE#*-} 镜像 v${KERN_VER} (${OS_VER}) ${RUN_DATE}"
+            TAG="${SYS_TYPE}-v${KERN_VER}-${OS_VER}-${RUN_DATE}-${GITHUB_RUN_ID}"
+            RELEASE_TITLE="${OS_NAME} ${SYS_TYPE#*-} 镜像 v${KERN_VER} (${OS_VER}) ${RUN_DATE} ${TIMESTAMP}"
           else
             # 批量构建：使用统一的标签
             TAG="build-${RUN_DATE}-${GITHUB_RUN_ID}"
