@@ -1,5 +1,7 @@
 # 小米 Raphael（Redmi K20 Pro）Linux 系统镜像构建项目
 
+此仓库为fork，仅维护 Debian-GNOME 。
+
 为小米 Raphael（Redmi K20 Pro / SM8150）打造的一套 Linux 镜像构建工具链，提供完整的 Debian / Ubuntu 镜像构建脚本与 GitHub Actions 自动化工作流，产出开箱即用的卡刷包。
 
 ---
@@ -46,7 +48,7 @@
 
 ### 2.2 获取镜像
 
-前往本仓库 [Releases](https://github.com/GavinLiuOnline/xiaomi_raphael_build_rootfs/releases) 下载对应机型的 `.zip` 卡刷包，无需本地编译。
+前往本仓库 [Releases](https://github.com/AKaNecoo/xiaomi_raphael_build_rootfs/releases) 下载对应机型的 `.zip` 卡刷包，无需本地编译。
 
 #### 演示视频
 
