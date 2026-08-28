@@ -10,11 +10,11 @@ on:
         options:
           - parallel
           - single
-        default: 'parallel'
+        default: 'single'
       system_types:
         description: '系统类型 (用逗号分隔多个值，如: debian-server,debian-gnome)'
         required: false
-        default: 'ubuntu-server,ubuntu-gnome,ubuntu-phosh'
+        default: 'debian-gnome'
         type: string
       kernel_versions:
         description: '内核版本 (默认7.0可选6.18)'
@@ -44,7 +44,7 @@ on:
       kernel_repository:
         description: '内核包仓库'
         required: false
-        default: 'GavinLiuOnline/xiaomi_raphael_build_kernel'
+        default: 'AKaNecoo/raphael-linux-fixes'
         type: string
   push:
     branches:
