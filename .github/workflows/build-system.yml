@@ -17,9 +17,9 @@ on:
         default: 'debian-gnome'
         type: string
       kernel_versions:
-        description: '内核版本 (默认7.0可选6.18)'
+        description: '内核版本 (默认7.0-r2修复版, 可选7.0/6.18)'
         required: false
-        default: '7.0'
+        default: '7.0-r2'
         type: string
       bootstrap_tools:
         description: '构建工具 (用逗号分隔多个值，如: mmdebstrap)'
